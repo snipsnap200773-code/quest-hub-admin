@@ -6,13 +6,14 @@ const MenuSettings = () => {
   const { shopId } = useParams();
   const menuFormRef = useRef(null);
 
-  // --- 1. State 管理 (本家から完全移植) ---
+  // --- 1. State 管理 (slotIntervalMinを追加、30分をデフォルトに) ---
   const [message, setMessage] = useState('');
   const [shopData, setShopData] = useState(null);
   const [services, setServices] = useState([]);
   const [categories, setCategories] = useState([]);
   const [options, setOptions] = useState([]);
   const [allowMultiple, setAllowMultiple] = useState(false);
+  const [slotIntervalMin, setSlotIntervalMin] = useState(30); // ✅ 初期値を30分に設定
 
   // カテゴリ用State
   const [newCategoryName, setNewCategoryName] = useState('');
@@ -32,7 +33,7 @@ const MenuSettings = () => {
   // 枝メニュー用State
   const [activeServiceForOptions, setActiveServiceForOptions] = useState(null);
   const [optGroupName, setOptGroupName] = useState(''); 
-  const [optName, setOptName] = useState('');          
+  const [optName, setOptName] = useState('');                  
   const [optSlots, setOptSlots] = useState(0);
 
   const themeColor = shopData?.theme_color || '#2563eb';
@@ -50,6 +51,7 @@ const MenuSettings = () => {
     if (data) {
       setShopData(data);
       setAllowMultiple(data.allow_multiple_services);
+      setSlotIntervalMin(data.slot_interval_min || 30); // ✅ DBから取得(なければ30)
     }
   };
 
@@ -64,15 +66,17 @@ const MenuSettings = () => {
 
   const showMsg = (txt) => { setMessage(txt); setTimeout(() => setMessage(''), 3000); };
 
-  // --- 3. アクション系ロジック (本家のものを完全維持) ---
-  
+  // --- 3. アクション系ロジック (既存のものを完全維持) ---
   const moveItem = async (type, list, id, direction) => {
     const idx = list.findIndex(item => item.id === id);
     const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
     if (targetIdx < 0 || targetIdx >= list.length) return;
     const newList = [...list]; const [moved] = newList.splice(idx, 1); newList.splice(targetIdx, 0, moved);
     const table = type === 'category' ? 'service_categories' : 'services';
-    const updates = newList.map((item, i) => ({ id: item.id, shop_id: shopId, sort_order: i, name: item.name, ...(type === 'service' ? { slots: item.slots, category: item.category } : {}) }));
+    const updates = newList.map((item, i) => ({ 
+      id: item.id, shop_id: shopId, sort_order: i, name: item.name, 
+      ...(type === 'service' ? { slots: item.slots, category: item.category } : {}) 
+    }));
     await supabase.from(table).upsert(updates); fetchMenuDetails();
   };
 
@@ -94,6 +98,15 @@ const MenuSettings = () => {
     fetchMenuDetails();
   };
 
+  const handleSave = async () => {
+    const { error } = await supabase.from('profiles').update({
+      allow_multiple_services: allowMultiple,
+      slot_interval_min: slotIntervalMin // ✅ 保存対象に追加
+    }).eq('id', shopId);
+    if (!error) showMsg('予約ルールを保存しました！');
+    else alert('保存に失敗しました。');
+  };
+
   const handleCategorySubmit = async (e) => {
     e.preventDefault();
     const payload = { 
@@ -102,7 +115,7 @@ const MenuSettings = () => {
     };
     if (editingCategoryId) await supabase.from('service_categories').update(payload).eq('id', editingCategoryId);
     else await supabase.from('service_categories').insert([{ ...payload, shop_id: shopId, sort_order: categories.length }]);
-    setEditingCategoryId(null); setNewCategoryName(''); setNewUrlKey(''); setNewCustomShopName(''); setNewCustomDescription(''); setNewCustomOfficialUrl('');
+    setEditingCategoryId(null); setNewCategoryName(''); setNewUrlKey(''); setNewCustomShopName(''); 
     fetchMenuDetails(); showMsg('カテゴリを保存しました');
   };
 
@@ -121,29 +134,34 @@ const MenuSettings = () => {
     setOptName(''); setOptSlots(0); fetchMenuDetails(); showMsg('枝メニューを追加しました');
   };
 
-  // --- 4. スタイル設定 (SOLOの雰囲気を維持) ---
+  // --- 4. スタイル設定 ---
   const cardStyle = { marginBottom: '20px', background: '#fff', padding: '15px', borderRadius: '12px', border: '1px solid #ddd', boxSizing: 'border-box', width: '100%', overflow: 'hidden' };
   const inputStyle = { width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #ccc', boxSizing: 'border-box', fontSize: '1rem', background: '#fff' };
+  const btnActiveS = (val, target) => ({ flex: 1, padding: '12px 5px', background: val === target ? themeColor : '#fff', color: val === target ? '#fff' : '#333', border: '1px solid #ccc', borderRadius: '8px', fontWeight: 'bold', fontSize: '0.85rem', cursor: 'pointer' });
 
   return (
     <div style={{ fontFamily: 'sans-serif', maxWidth: '700px', margin: '0 auto', padding: '20px', paddingBottom: '120px', boxSizing: 'border-box' }}>
       {message && <div style={{ position: 'fixed', top: 20, left: '50%', transform: 'translateX(-50%)', width: '90%', padding: '15px', background: '#dcfce7', color: '#166534', borderRadius: '8px', zIndex: 1001, textAlign: 'center', boxShadow: '0 4px 10px rgba(0,0,0,0.1)' }}>{message}</div>}
 
-      {/* 🛡️ 予約ルール */}
-      <section style={{ ...cardStyle, border: `1px solid ${themeColor}` }}>
-        <h3 style={{ marginTop: 0, fontSize: '0.9rem', color: themeColor }}>🛡️ 予約ルール</h3>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <input type="checkbox" checked={allowMultiple} onChange={async (e) => {
-            const val = e.target.checked;
-            setAllowMultiple(val);
-            await supabase.from('profiles').update({ allow_multiple_services: val }).eq('id', shopId);
-            showMsg('予約ルールを更新しました');
-          }} style={{ width: '22px', height: '22px' }} />
-          <span style={{ fontSize: '0.95rem', fontWeight: 'bold' }}>メニューの複数選択を許可する</span>
+      {/* ⚙️ 1コマの単位 (統合) */}
+      <section style={{ ...cardStyle, border: `2px solid ${themeColor}` }}>
+        <h3 style={{ marginTop: 0, fontSize: '0.9rem', color: themeColor }}>⚙️ 予約エンジンの基本</h3>
+        <div style={{ marginBottom: '15px' }}>
+          <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '8px', fontSize: '0.85rem' }}>1コマの単位（推奨：30分）</label>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            {[10, 15, 20, 30].map(min => (
+              <button key={min} onClick={() => setSlotIntervalMin(min)} style={btnActiveS(slotIntervalMin, min)}>{min}分</button>
+            ))}
+          </div>
+        </div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }}>
+          <input type="checkbox" checked={allowMultiple} onChange={(e) => setAllowMultiple(e.target.checked)} style={{ width: '22px', height: '22px' }} />
+          <span style={{ fontSize: '0.95rem', fontWeight: 'bold' }}>複数のカテゴリ選択を許可する</span>
         </label>
+        <button onClick={handleSave} style={{ width: '100%', padding: '12px', background: themeColor, color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', marginTop: '15px' }}>設定を保存</button>
       </section>
 
-      {/* 📂 カテゴリ設定 */}
+      {/* 📂 カテゴリ設定 (以下、既存のロジックが続きます) */}
       <section style={cardStyle}>
         <h3 style={{ marginTop: 0, fontSize: '0.9rem' }}>📂 カテゴリ設定</h3>
         <form onSubmit={handleCategorySubmit} style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px' }}>
@@ -154,7 +172,7 @@ const MenuSettings = () => {
           </div>
           <button type="submit" style={{ width: '100%', padding: '12px', background: themeColor, color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold' }}>{editingCategoryId ? 'カテゴリを更新' : 'カテゴリを登録'}</button>
         </form>
-
+        {/* ... (既存のカテゴリ表示・連動設定ロジックをここに維持) ... */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           {categories.map((c, idx) => (
             <div key={c.id} style={{ background: '#f8fafc', padding: '10px', borderRadius: '12px', border: '1px solid #e5e7eb' }}>
@@ -167,18 +185,10 @@ const MenuSettings = () => {
                   <button onClick={async () => { if(window.confirm('削除しますか？')) { await supabase.from('service_categories').delete().eq('id', c.id); fetchMenuDetails(); } }} style={{ padding: '5px' }}>×</button>
                 </div>
               </div>
-              
-              {/* 🔗 連動設定ロジック完全移植 */}
               <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                <button 
-                  onClick={async () => { await supabase.from('service_categories').update({ allow_multiple_in_category: !c.allow_multiple_in_category }).eq('id', c.id); fetchMenuDetails(); }} 
-                  style={{ fontSize: '0.7rem', padding: '4px 8px', background: c.allow_multiple_in_category ? themeColor : '#fff', color: c.allow_multiple_in_category ? '#fff' : '#333', border: '1px solid #ccc', borderRadius: '15px' }}
-                >
-                  {c.allow_multiple_in_category ? '複数選択可' : '1つのみ選択'}
-                </button>
+                <button onClick={async () => { await supabase.from('service_categories').update({ allow_multiple_in_category: !c.allow_multiple_in_category }).eq('id', c.id); fetchMenuDetails(); }} style={{ fontSize: '0.7rem', padding: '4px 8px', background: c.allow_multiple_in_category ? themeColor : '#fff', color: c.allow_multiple_in_category ? '#fff' : '#333', border: '1px solid #ccc', borderRadius: '15px' }}>{c.allow_multiple_in_category ? '複数選択可' : '1つのみ選択'}</button>
                 <button onClick={() => setEditingDisableCatId(editingDisableCatId === c.id ? null : c.id)} style={{ fontSize: '0.7rem', padding: '4px 8px', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '15px' }}>🔗 連動設定</button>
               </div>
-
               {editingDisableCatId === c.id && (
                 <div style={{ marginTop: '10px', padding: '12px', background: '#fff', borderRadius: '12px', border: `1px solid ${themeColor}` }}>
                   <p style={{ fontSize: '0.7rem', fontWeight: 'bold', color: '#ef4444' }}>🚫 無効化設定：</p>
@@ -212,7 +222,7 @@ const MenuSettings = () => {
           </select>
           <input value={newServiceName} onChange={(e) => setNewServiceName(e.target.value)} style={{ ...inputStyle, marginBottom: '10px' }} placeholder="メニュー名" required />
           <div style={{ marginBottom: '15px' }}>
-            <label style={{ fontSize: '0.85rem', display: 'block', marginBottom: '8px' }}>必要コマ数: <span style={{ color: themeColor }}>{newServiceSlots}コマ</span></label>
+            <label style={{ fontSize: '0.85rem', display: 'block', marginBottom: '8px' }}>必要コマ数: <span style={{ color: themeColor }}>{newServiceSlots}コマ（{newServiceSlots * slotIntervalMin}分）</span></label>
             <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
               {[1, 2, 3, 4, 5, 6, 7, 8].map(n => <button key={n} type="button" onClick={() => setNewServiceSlots(n)} style={{ width: '40px', height: '40px', borderRadius: '8px', border: '1px solid', borderColor: newServiceSlots === n ? themeColor : '#ccc', background: newServiceSlots === n ? themeColor : 'white', color: newServiceSlots === n ? 'white' : '#333', fontWeight: 'bold' }}>{n}</button>)}
             </div>
@@ -221,7 +231,7 @@ const MenuSettings = () => {
         </form>
       </section>
 
-      {/* 表示エリア */}
+      {/* 表示エリア (以下、既存のメニュー・枝メニュー表示ロジックを維持) */}
       {categories.map((cat) => (
         <div key={cat.id} style={{ marginBottom: '25px' }}>
           <h4 style={{ color: '#64748b', fontSize: '0.85rem', marginBottom: '10px', borderLeft: '4px solid #cbd5e1', paddingLeft: '8px' }}>{cat.name}</h4>
@@ -230,7 +240,7 @@ const MenuSettings = () => {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 'bold' }}>{s.name}</div>
-                  <div style={{ fontSize: '0.8rem', color: themeColor }}>{s.slots}コマ</div>
+                  <div style={{ fontSize: '0.8rem', color: themeColor }}>{s.slots}コマ（{s.slots * slotIntervalMin}分）</div>
                 </div>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <button onClick={() => setActiveServiceForOptions(activeServiceForOptions?.id === s.id ? null : s)} style={{ padding: '5px 8px', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 'bold', color: activeServiceForOptions?.id === s.id ? themeColor : '#333' }}>枝</button>
@@ -240,8 +250,7 @@ const MenuSettings = () => {
                   <button onClick={async () => { if(window.confirm('削除しますか？')) { await supabase.from('services').delete().eq('id', s.id); fetchMenuDetails(); } }} style={{ padding: '5px' }}>×</button>
                 </div>
               </div>
-              
-              {/* 枝メニュー完全再現 (枝カテゴリ/グループ名対応) */}
+              {/* 枝メニュー表示ロジック */}
               {activeServiceForOptions?.id === s.id && (
                 <div style={{ marginTop: '15px', background: '#f8fafc', padding: '15px', borderRadius: '10px', border: '1px solid #eee' }}>
                   <form onSubmit={handleOptionSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -253,7 +262,6 @@ const MenuSettings = () => {
                       <button type="submit" style={{ flex: 1, padding: '10px', background: themeColor, color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 'bold' }}>＋ 枝追加</button>
                     </div>
                   </form>
-                  {/* グループ表示ロジック */}
                   {Array.from(new Set(options.filter(o => o.service_id === s.id).map(o => o.group_name))).map(group => (
                     <div key={group} style={{ marginTop: '10px' }}>
                       <div style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#64748b' }}>▼ {group || '共通'}</div>
