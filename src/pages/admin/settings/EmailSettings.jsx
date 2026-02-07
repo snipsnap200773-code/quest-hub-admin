@@ -66,12 +66,12 @@ const EmailSettings = () => {
   };
 
   const getPreview = (text) => {
-    return text.replace(/{name}/g, '三土手 功真')
-               .replace(/{shop_name}/g, shopData?.business_name || '美容室SOLO')
-               .replace(/{start_time}/g, '2026/02/10 14:00')
-               .replace(/{services}/g, 'カット ＆ カラー')
-               .replace(/{cancel_url}/g, 'https://solo.biz/cancel/...')
-               .replace(/{official_url}/g, 'https://instagram.com/...');
+    return text.replace(/{name}/g, 'お客様名')
+               .replace(/{shop_name}/g, shopData?.business_name || '店名')
+               .replace(/{start_time}/g, '予約日時')
+               .replace(/{services}/g, 'メールの内容')
+               .replace(/{cancel_url}/g, 'キャンセル用URL')
+               .replace(/{official_url}/g, '公式HP/SNS');
   };
 
   if (loading) return null;

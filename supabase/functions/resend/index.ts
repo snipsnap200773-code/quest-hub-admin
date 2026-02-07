@@ -205,34 +205,32 @@ Deno.serve(async (req) => {
           // 💡 パターン(4): 店舗宛キャンセル
           finalSubject = applyPlaceholders(profile.mail_sub_shop_cancel || `【キャンセル通知】${customerName} 様`, placeholderData);
           const body = applyPlaceholders(profile.mail_body_shop_cancel || `${shopName} 管理者様\n\n予約がキャンセルされました。\nお客様: ${customerName}\n日時: ${startTime}`, placeholderData).replace(/\n/g, '<br>');
-          finalHtml = `<div style="font-family: sans-serif; color: #333; line-height: 1.6;">${body}</div>`;
+          finalHtml = `<div lang="ja" style="font-family: sans-serif; ...">${body}</div>`;
         } else {
           // 💡 パターン(3): お客様宛キャンセル
           finalSubject = applyPlaceholders(profile.mail_sub_customer_cancel || `キャンセル完了のお知らせ（${shopName}）`, placeholderData);
           const body = applyPlaceholders(profile.mail_body_customer_cancel || `${customerName} 様\n\nご予約のキャンセル手続きが完了いたしました。`, placeholderData).replace(/\n/g, '<br>');
-          finalHtml = `<div style="font-family: sans-serif; color: #333; line-height: 1.6;">${body}</div>`;
+          finalHtml = `<div lang="ja" style="font-family: sans-serif; ...">${body}</div>`;
         }
       } else {
         if (isOwner) {
           // 💡 パターン(5): 店舗宛予約
           finalSubject = applyPlaceholders(profile.mail_sub_shop_booking || `【新着予約】${customerName} 様`, placeholderData);
           const body = applyPlaceholders(profile.mail_body_shop_booking || `${shopName} 管理者様\n\n新着予約通知...`, placeholderData).replace(/\n/g, '<br>');
-          finalHtml = `<div style="font-family: sans-serif; color: #333; line-height: 1.6;">${body}</div>`;
+          finalHtml = `<div lang="ja" style="font-family: sans-serif; ...">${body}</div>`;
         } else {
           // 💡 パターン(1): お客様宛予約
           if (profile.mail_sub_customer_booking && profile.mail_body_customer_booking) {
             finalSubject = applyPlaceholders(profile.mail_sub_customer_booking, placeholderData);
             const body = applyPlaceholders(profile.mail_body_customer_booking, placeholderData).replace(/\n/g, '<br>');
-            finalHtml = `<div style="font-family: sans-serif; color: #333; line-height: 1.6;">${body}</div>`;
+            finalHtml = `<div lang="ja" style="font-family: sans-serif; ...">${body}</div>`;
           } else {
-            // 三土手さん設計のオリジナル本家標準カード (完全維持)
-            finalSubject = `予約完了のお知らせ：${customerName} 様`;
-            finalHtml = `
-              <div style="font-family: sans-serif; color: #333; line-height: 1.6;">
-                <h2 style="color: #2563eb;">予約完了のお知らせ</h2>
-                <p><strong>${customerName} 様</strong></p>
-                <p>この度は ${shopName} をご利用いただきありがとうございます。</p>
-                <div style="background: #f8fafc; padding: 20px; border-radius: 10px; border: 1px solid #e2e8f0; margin: 20px 0;">
+// 三土手さん設計のオリジナル本家標準カード (完全維持)
+finalSubject = `予約完了のお知らせ：${customerName} 様`;
+finalHtml = `<div lang="ja" style="font-family: sans-serif; color: #333; line-height: 1.6;">
+    <h2 style="color: #2563eb;">予約完了のお知らせ</h2>
+    <p><strong>${customerName} 様</strong></p>
+    <p>この度は ${shopName} をご利用いただきありがとうございます。</p>                <div style="background: #f8fafc; padding: 20px; border-radius: 10px; border: 1px solid #e2e8f0; margin: 20px 0;">
                   <p style="margin: 5px 0;">👤 <strong>お客様:</strong> ${customerName} 様</p>
                   <p style="margin: 5px 0;">📅 <strong>日時:</strong> ${startTime}</p>
                   <p style="margin: 5px 0;">📋 <strong>メニュー:</strong> ${services}</p>
