@@ -86,7 +86,7 @@ const AdminDashboard = () => {
 
         {/* 営業時間 */}
         <NavCard 
-          title="営業時間・休日" desc="1コマの単位・休憩・定休日・予約制限" icon={<Clock size={28} />} color="#f59e0b"
+          title="営業時間・休日" desc="1コマの単位・同時予約数・定休日・予約制限" icon={<Clock size={28} />} color="#f59e0b"
           to={`/admin/${shopId}/settings/schedule`}
           cardStyle={cardStyle} iconBoxStyle={iconBoxStyle} 
         />

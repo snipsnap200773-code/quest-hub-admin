@@ -18,6 +18,7 @@ const ScheduleSettings = () => {
   const [bufferPreparationMin, setBufferPreparationMin] = useState(0);
   const [minLeadTimeHours, setMinLeadTimeHours] = useState(0);
   const [autoFillLogic, setAutoFillLogic] = useState(true);
+  const [maxCapacity, setMaxCapacity] = useState(1);
 
   const dayMap = { mon: '月曜日', tue: '火曜日', wed: '水曜日', thu: '木曜日', fri: '金曜日', sat: '土曜日', sun: '日曜日' };
   const weekLabels = [
@@ -38,6 +39,7 @@ const ScheduleSettings = () => {
       setBufferPreparationMin(data.buffer_preparation_min || 0);
       setMinLeadTimeHours(data.min_lead_time_hours || 0);
       setAutoFillLogic(data.auto_fill_logic ?? true);
+      setMaxCapacity(data.max_capacity || 1);
     }
   };
 
@@ -55,7 +57,8 @@ const ScheduleSettings = () => {
       business_hours: updatedBusinessHours,
       buffer_preparation_min: bufferPreparationMin,
       min_lead_time_hours: minLeadTimeHours,
-      auto_fill_logic: autoFillLogic
+      auto_fill_logic: autoFillLogic,
+      max_capacity: maxCapacity
     }).eq('id', shopId);
 
     if (!error) showMsg('全スケジュール設定を保存しました！');
@@ -126,12 +129,29 @@ const ScheduleSettings = () => {
         ))}
       </section>
 
-      {/* ⚙️ 予約受付ルールの詳細 */}
+{/* ⚙️ 予約受付ルールの詳細 */}
       <section style={{ ...cardStyle, border: `2px solid ${themeColor}` }}>
         <h3 style={{ marginTop: 0, fontSize: '1.1rem', color: themeColor, display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
           <Zap size={22} /> 予約受付ルールの詳細
         </h3>
         
+        {/* --- 🆕 追加：同時予約の受け入れ上限 --- */}
+        <div style={{ marginBottom: '25px' }}>
+          <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '10px', fontSize: '0.85rem', color: '#334155' }}>
+            同時予約の受け入れ上限（キャパシティ）
+          </label>
+          <select value={maxCapacity} onChange={(e) => setMaxCapacity(parseInt(e.target.value))} style={selectStyle}>
+            {[1, 2, 3, 4, 5, 10].map(num => (
+              <option key={num} value={num}>
+                {num}名（{num === 1 ? 'マンツーマン' : '同時受付可能'}）
+              </option>
+            ))}
+          </select>
+          <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '6px', lineHeight: '1.4' }}>
+            ※同じ時間枠に最大何名まで予約を許可するか設定します。
+          </p>
+        </div>
+
         <div style={{ marginBottom: '20px' }}>
           <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '10px', fontSize: '0.85rem', color: '#334155' }}>インターバル（準備時間）</label>
           <select value={bufferPreparationMin} onChange={(e) => setBufferPreparationMin(parseInt(e.target.value))} style={selectStyle}>
@@ -152,12 +172,12 @@ const ScheduleSettings = () => {
           </select>
         </div>
 
-        <label style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', padding: '10px' }}>
-          <input type="checkbox" checked={autoFillLogic} onChange={(e) => setAutoFillLogic(e.target.checked)} style={{ width: '22px', height: '22px' }} />
-          <b style={{ fontSize: '0.95rem', color: '#334155' }}>自動詰め機能を有効にする</b>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', padding: '10px', background: '#f8fafc', borderRadius: '12px' }}>
+          <input type="checkbox" checked={autoFillLogic} onChange={(e) => setAutoFillLogic(e.target.checked)} style={{ width: '20px', height: '20px' }} />
+          <b style={{ fontSize: '0.9rem', color: '#334155' }}>自動詰め機能を有効にする</b>
         </label>
       </section>
-
+      
       {/* 📅 定休日の設定 */}
       <section style={{ ...cardStyle, border: '1px solid #fee2e2' }}>
         <h3 style={{ marginTop: 0, color: '#ef4444', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1.1rem', marginBottom: '20px' }}>

@@ -32,6 +32,8 @@ function AdminReservations() {
   const [targetTime, setTargetTime] = useState('');
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedRes, setSelectedRes] = useState(null);
+  const [showSlotListModal, setShowSlotListModal] = useState(false);
+  const [selectedSlotReservations, setSelectedSlotReservations] = useState([]);
   const [customerHistory, setCustomerHistory] = useState([]);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [searchTerm, setSearchTerm] = useState('');
@@ -391,17 +393,17 @@ const getStatusAt = (dateStr, timeStr) => {
     const dateObj = new Date(dateStr);
     const currentSlotStart = new Date(`${dateStr}T${timeStr}:00`).getTime();
 
-    // 1. 【最優先】DBにある予約や自己予定（協議会など）をチェック
-    const matches = reservations.filter(r => {
-      const start = new Date(r.start_time).getTime();
-      const end = new Date(r.end_time).getTime();
-      return currentSlotStart >= start && currentSlotStart < end;
-    });
+// 1. 【最優先】DBにある予約や自己予定をチェック
+const matches = reservations.filter(r => {
+  const start = new Date(r.start_time).getTime();
+  const end = new Date(r.end_time).getTime();
+  return currentSlotStart >= start && currentSlotStart < end;
+});
 
-    if (matches.length > 0) {
-      const exact = matches.find(r => new Date(r.start_time).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false }) === timeStr);
-      return exact || matches.find(r => r.res_type === 'blocked') || matches[0];
-    }
+// 絞り込まずに、該当する予約があれば「配列」としてそのまま返す
+if (matches.length > 0) {
+  return matches; 
+}
 
     // 2. 【次点】定休日かどうかをチェック
     if (checkIsRegularHoliday(dateObj)) {
@@ -659,19 +661,41 @@ const getStatusAt = (dateStr, timeStr) => {
                   </td>
 {weekDays.map(date => {
   const dStr = getJapanDateStr(date);
-  const res = getStatusAt(dStr, time);
-  const isStart = res && new Date(res.start_time).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false }) === time;
-  const isOtherShop = res && res.shop_id !== shopId && res.res_type !== 'system_blocked' && !res.isRegularHoliday;
+  const res = getStatusAt(dStr, time); // res は [予約1, 予約2...] という配列、または 定休日/空きのオブジェクト
+  
+  // 配列（予約あり）か、オブジェクト（定休日など）か、null（空き）かを判定
+  const isArray = Array.isArray(res);
+  const reservationCount = isArray ? res.length : 0;
+  
+  // 配列の中に「今から始まる予約」が含まれているか
+  const isStart = isArray && res.some(r => 
+    new Date(r.start_time).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false }) === time
+  );
+
+  // 他店舗の予約が含まれているか
+  const isOtherShop = isArray && res.some(r => r.shop_id !== shopId && r.res_type !== 'system_blocked' && !r.isRegularHoliday);
 
   // --- 色の決定ロジック ---
   let bgColor = '#fff'; let borderColor = '#f1f5f9'; let textColor = '#cbd5e1';
+  
   if (res) {
-    if (res.isRegularHoliday) { bgColor = '#f3f4f6'; textColor = '#94a3b8'; }
-    else if (isOtherShop) { bgColor = '#f1f5f9'; textColor = '#94a3b8'; borderColor = '#cbd5e1'; } 
-    else if (res.res_type === 'blocked') { bgColor = '#fee2e2'; textColor = '#ef4444'; borderColor = '#ef4444'; }
-    else if (res.res_type === 'system_blocked') { bgColor = '#f8fafc'; textColor = '#cbd5e1'; }
-    else if (isStart) { bgColor = themeColorLight; textColor = '#1e293b'; borderColor = themeColor; }
-    else { bgColor = '#fdfdfd'; textColor = '#cbd5e1'; }
+    if (!isArray && res.isRegularHoliday) { 
+      bgColor = '#f3f4f6'; textColor = '#94a3b8'; 
+    } else if (isOtherShop) { 
+      bgColor = '#f1f5f9'; textColor = '#94a3b8'; borderColor = '#cbd5e1'; 
+    } else if (isArray && res.some(r => r.res_type === 'blocked')) { 
+      // 1つでもブロックがあれば赤系にする
+      bgColor = '#fee2e2'; textColor = '#ef4444'; borderColor = '#ef4444'; 
+    } else if (!isArray && res.res_type === 'system_blocked') { 
+      bgColor = '#f8fafc'; textColor = '#cbd5e1'; 
+    } else if (isStart) { 
+      // 複数予約がある場合は少し濃い目の色にしてもOK（ここでは既存を尊重）
+      bgColor = reservationCount > 1 ? '#e0e7ff' : themeColorLight; 
+      textColor = '#1e293b'; 
+      borderColor = themeColor; 
+    } else { 
+      bgColor = '#fdfdfd'; textColor = '#cbd5e1'; 
+    }
   }
 
   return (
@@ -681,10 +705,20 @@ const getStatusAt = (dateStr, timeStr) => {
         setSelectedDate(dStr); 
         setTargetTime(time); 
         
-        // ✅ 🆕 修正ポイント：定休日(!res.isRegularHoliday)をすり抜けて予約メニュー(setShowMenuModal)を開くようにしました
-        if(res && !res.isRegularHoliday && (isStart || res.res_type === 'blocked')){ 
-          openDetail(res); 
-        } else { 
+        if (isArray) {
+          if (reservationCount > 1) {
+            // ✅ 2人以上の場合は「リスト選択Modal」を開く（後で作成）
+            setSelectedSlotReservations(res);
+            setShowSlotListModal(true);
+          } else {
+            // ✅ 1人の場合は既存の「詳細Modal」を直接開く
+            openDetail(res[0]);
+          }
+        } else if (res && !res.isRegularHoliday && res.res_type === 'blocked') {
+          // ブロック枠の場合
+          openDetail(res);
+        } else {
+          // 予約なし、または定休日
           setShowMenuModal(true); 
         } 
       }} 
@@ -693,32 +727,39 @@ const getStatusAt = (dateStr, timeStr) => {
       {res && (
         <div style={{ position: 'absolute', inset: '1px', background: bgColor, color: textColor, padding: '4px 8px', borderRadius: '2px', zIndex: 5, overflow: 'hidden', borderLeft: `2px solid ${borderColor}`, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', textAlign: 'center' }}>
           
-          {/* ✅ 🆕 修正ポイント：ブロック枠の場合、名前が「管理者ブロック」でなければ文字を表示します */}
-          {res.res_type === 'blocked' ? (
+          {/* 1. ブロック枠の表示 */}
+          {(!isArray && res.res_type === 'blocked') ? (
             res.isRegularHoliday ? (isStart ? <span style={{fontSize:'0.6rem', fontWeight:'bold'}}>定休日</span> : '') : 
             (res.customer_name === '臨時休業' && isStart ? <span style={{fontSize:'0.7rem', fontWeight:'bold'}}>臨時休業</span> : 
               (isStart ? (res.customer_name === '管理者ブロック' ? '✕' : <div style={{fontWeight:'bold', fontSize:'0.7rem', lineHeight:'1.1', overflow:'hidden'}}>{res.customer_name}</div>) : '✕')
             )
           ) : (
-            res.res_type === 'system_blocked' ? <span style={{fontSize:'0.6rem'}}>{res.customer_name}</span> : 
+            // 2. システムブロック（インターバル等）
+            (!isArray && res.res_type === 'system_blocked') ? <span style={{fontSize:'0.6rem'}}>{res.customer_name}</span> : 
+            
+            // 3. 通常予約（配列）
             (isStart ? (
               <div style={{ 
                 fontWeight: 'bold', 
                 fontSize: isPC ? '0.9rem' : 'calc(0.7rem + 0.2vw)', 
-                writingMode: isPC ? 'horizontal-tb' : 'vertical-rl', 
-                textOrientation: 'upright', 
                 lineHeight: '1.1', 
                 height: '100%', 
                 width: '100%', 
                 display: 'flex', 
+                flexDirection: 'column',
                 alignItems: 'center', 
                 justifyContent: 'center', 
-                overflow: 'hidden', 
-                whiteSpace: isPC ? 'normal' : 'nowrap' 
+                overflow: 'hidden'
               }}>
-                {isOtherShop ? `(${res.profiles?.business_name})` : isPC ? `${res.customer_name} 様` : getFamilyName(res.customer_name)}
+                {reservationCount > 1 ? (
+                  // ✅ 複数人の場合の表示
+                  <span style={{ fontSize: '1.1rem' }}>👥 {reservationCount}名</span>
+                ) : (
+                  // ✅ 1人の場合の表示
+                  isPC ? `${res[0].customer_name} 様` : getFamilyName(res[0].customer_name)
+                )}
               </div>
-            ) : '・')
+            ) : isArray ? '・' : '')
           )}
         </div>
       )}
@@ -859,31 +900,113 @@ const getStatusAt = (dateStr, timeStr) => {
         </div>
       )}
 
-      {showMenuModal && (
-        <div onClick={() => setShowMenuModal(false)} style={overlayStyle}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', padding: '35px', borderRadius: '30px', width: '90%', maxWidth: '340px', textAlign: 'center', position: 'relative' }}>
-            <h3 style={{ margin: '0 0 10px 0', color: '#64748b', fontSize: '0.9rem' }}>{selectedDate.replace(/-/g, '/')}</h3>
-            <p style={{ fontWeight: '900', color: themeColor, fontSize: '2.2rem', margin: '0 0 30px 0' }}>{targetTime}</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <button onClick={() => navigate(`/shop/${shopId}/reserve`, { state: { adminDate: selectedDate, adminTime: targetTime } })} style={{ padding: '22px', background: themeColor, color: '#fff', border: 'none', borderRadius: '20px', fontWeight: '900', fontSize: '1.2rem' }}>予約を入れる</button>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-<button 
-  onClick={handleBlockTime} 
-  style={{ padding: '15px', background: '#fff', color: themeColor, border: `2px solid ${themeColorLight}`, borderRadius: '20px', fontWeight: 'bold', fontSize: '0.85rem' }}
->
-  「✕」またはスケジュール
-</button>
-                <button onClick={handleBlockFullDay} style={{ padding: '15px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '20px', fontWeight: 'bold', fontSize: '0.85rem' }}>今日を休みにする</button>
-              </div>
-              <button onClick={() => setShowMenuModal(false)} style={{ padding: '15px', border: 'none', background: 'none', color: '#94a3b8' }}>キャンセル</button>
+{/* 👥 予約者選択リストModal (複数予約がある場合に表示) */}
+      {showSlotListModal && (
+        <div onClick={() => setShowSlotListModal(false)} style={overlayStyle}>
+          <div 
+            onClick={(e) => e.stopPropagation()} 
+            style={{ 
+              ...modalContentStyle, 
+              maxWidth: '450px', 
+              textAlign: 'center', 
+              background: '#f8fafc', // 少し落ち着いた背景色
+              padding: '25px'
+            }}
+          >
+            <div style={{ marginBottom: '20px' }}>
+              <h3 style={{ margin: '0 0 5px 0', color: '#64748b', fontSize: '0.9rem' }}>{selectedDate.replace(/-/g, '/')}</h3>
+              <p style={{ fontWeight: '900', color: themeColor, fontSize: '1.8rem', margin: 0 }}>{targetTime} の予約</p>
+              <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '5px' }}>詳細を見たい方を選択してください</p>
             </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '50vh', overflowY: 'auto', padding: '5px' }}>
+              {selectedSlotReservations.map((res, idx) => (
+                <div 
+                  key={res.id || idx}
+                  onClick={() => {
+                    setShowSlotListModal(false);
+                    openDetail(res);
+                  }}
+                  style={{
+                    background: '#fff',
+                    padding: '18px',
+                    borderRadius: '18px',
+                    border: `1px solid #e2e8f0`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    cursor: 'pointer',
+                    transition: 'transform 0.2s, border-color 0.2s',
+                    boxShadow: '0 4px 6px rgba(0,0,0,0.02)'
+                  }}
+                  onMouseOver={(e) => {
+                    e.currentTarget.style.borderColor = themeColor;
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                  }}
+                  onMouseOut={(e) => {
+                    e.currentTarget.style.borderColor = '#e2e8f0';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }}
+                >
+                  <div style={{ textAlign: 'left', flex: 1 }}>
+                    <div style={{ fontWeight: '900', fontSize: '1.1rem', color: '#1e293b', marginBottom: '4px' }}>
+                      {res.res_type === 'blocked' ? `🚫 ${res.customer_name}` : `👤 ${res.customer_name} 様`}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                      {res.res_type === 'normal' ? (
+                        res.options?.services?.map(s => s.name).join(', ') || 'メニュー未設定'
+                      ) : (
+                        'スケジュールブロック'
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ color: themeColor, fontSize: '1.2rem', fontWeight: 'bold' }}>
+                    〉
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <button 
+              onClick={() => setShowSlotListModal(false)} 
+              style={{ 
+                marginTop: '25px', 
+                padding: '12px', 
+                border: 'none', 
+                background: 'none', 
+                color: '#94a3b8', 
+                fontWeight: 'bold', 
+                cursor: 'pointer' 
+              }}
+            >
+              キャンセル
+            </button>
+
             {!isPC && (
-              <button onClick={() => setShowMenuModal(false)} style={{ position: 'fixed', bottom: '30px', left: '50%', transform: 'translateX(-50%)', background: '#1e293b', color: '#fff', border: 'none', padding: '12px 40px', borderRadius: '50px', fontWeight: 'bold', boxShadow: '0 10px 20px rgba(0,0,0,0.3)', zIndex: 4000 }}>閉じる ✕</button>
+              <button 
+                onClick={() => setShowSlotListModal(false)} 
+                style={{ 
+                  position: 'fixed', 
+                  bottom: '30px', 
+                  left: '50%', 
+                  transform: 'translateX(-50%)', 
+                  background: '#1e293b', 
+                  color: '#fff', 
+                  border: 'none', 
+                  padding: '12px 40px', 
+                  borderRadius: '50px', 
+                  fontWeight: 'bold', 
+                  boxShadow: '0 10px 20px rgba(0,0,0,0.3)', 
+                  zIndex: 4000 
+                }}
+              >
+                閉じる ✕
+              </button>
             )}
           </div>
         </div>
       )}
-    </div>
+          </div>
   );
 }
 
