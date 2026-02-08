@@ -43,6 +43,16 @@ const ScheduleSettings = () => {
     }
   };
 
+  // ✅ 🆕 修正ポイント：人数設定変更時に自動詰めを連動させる関数
+  const handleCapacityChange = (val) => {
+    const num = parseInt(val);
+    setMaxCapacity(num);
+    // 1名（マンツーマン）以外が選択されたら、自動詰めを強制的にOFFにする
+    if (num > 1) {
+      setAutoFillLogic(false);
+    }
+  };
+
   const showMsg = (txt) => { setMessage(txt); setTimeout(() => setMessage(''), 3000); };
 
   const toggleHoliday = (weekKey, dayKey) => {
@@ -129,23 +139,28 @@ const ScheduleSettings = () => {
         ))}
       </section>
 
-{/* ⚙️ 予約受付ルールの詳細 */}
+      {/* ⚙️ 予約受付ルールの詳細 */}
       <section style={{ ...cardStyle, border: `2px solid ${themeColor}` }}>
         <h3 style={{ marginTop: 0, fontSize: '1.1rem', color: themeColor, display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
           <Zap size={22} /> 予約受付ルールの詳細
         </h3>
         
-        {/* --- 🆕 追加：同時予約の受け入れ上限 --- */}
+        {/* --- 🆕 同時予約の受け入れ上限 --- */}
         <div style={{ marginBottom: '25px' }}>
           <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '10px', fontSize: '0.85rem', color: '#334155' }}>
             同時予約の受け入れ上限（キャパシティ）
           </label>
-          <select value={maxCapacity} onChange={(e) => setMaxCapacity(parseInt(e.target.value))} style={selectStyle}>
-{Array.from({ length: 10 }, (_, i) => i + 1).map(num => (
-  <option key={num} value={num}>
-    {num}名（{num === 1 ? 'マンツーマン' : '同時受付可能'}）
-  </option>
-))}          </select>
+          <select 
+            value={maxCapacity} 
+            onChange={(e) => handleCapacityChange(e.target.value)} // ✅ 🆕 専用ハンドラーに変更
+            style={selectStyle}
+          >
+            {Array.from({ length: 10 }, (_, i) => i + 1).map(num => (
+              <option key={num} value={num}>
+                {num}名（{num === 1 ? 'マンツーマン' : '同時受付可能'}）
+              </option>
+            ))}
+          </select>
           <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '6px', lineHeight: '1.4' }}>
             ※同じ時間枠に最大何名まで予約を許可するか設定します。
           </p>
@@ -171,10 +186,35 @@ const ScheduleSettings = () => {
           </select>
         </div>
 
-        <label style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', padding: '10px', background: '#f8fafc', borderRadius: '12px' }}>
-          <input type="checkbox" checked={autoFillLogic} onChange={(e) => setAutoFillLogic(e.target.checked)} style={{ width: '20px', height: '20px' }} />
+        {/* ✅ 🆕 修正ポイント：maxCapacity が 1 以外の時はチェックボックスを無効化 */}
+        <label 
+          style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '12px', 
+            cursor: maxCapacity === 1 ? 'pointer' : 'not-allowed', 
+            padding: '10px', 
+            background: '#f8fafc', 
+            borderRadius: '12px',
+            opacity: maxCapacity === 1 ? 1 : 0.6
+          }}
+        >
+          <input 
+            type="checkbox" 
+            checked={autoFillLogic} 
+            disabled={maxCapacity !== 1} // ✅ 人数が1名以外の時は操作不可
+            onChange={(e) => setAutoFillLogic(e.target.checked)} 
+            style={{ width: '20px', height: '20px' }} 
+          />
           <b style={{ fontSize: '0.9rem', color: '#334155' }}>自動詰め機能を有効にする</b>
         </label>
+        
+        {/* ✅ 🆕 補足メッセージの追加 */}
+        {maxCapacity > 1 && (
+          <p style={{ fontSize: '0.65rem', color: '#ef4444', marginTop: '8px', marginLeft: '10px', fontWeight: 'bold' }}>
+            ※同時予約を有効にしているため、自動詰め機能はオフに固定されています。
+          </p>
+        )}
       </section>
 
       {/* 📅 定休日の設定 */}
