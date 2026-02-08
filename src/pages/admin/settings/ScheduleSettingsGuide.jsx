@@ -4,7 +4,7 @@ import { supabase } from "../../../supabaseClient";
 import { 
   ChevronRight, ChevronLeft, Clock, Calendar, 
   Zap, Save, SkipForward, Coffee, ShieldCheck, 
-  Check, X, CheckCircle2
+  Check, X, CheckCircle2, Users // 👈 Usersアイコンを追加
 } from 'lucide-react';
 
 // --- 📋 スタイル定数 ---
@@ -57,6 +57,7 @@ const ScheduleSettingsGuide = () => {
   const [bufferMin, setBufferMin] = useState(0);
   const [leadTime, setLeadTime] = useState(0);
   const [autoFill, setAutoFill] = useState(true);
+  const [maxCapacity, setMaxCapacity] = useState(1); // 👈 追加
 
   const themeColor = shopData?.theme_color || themeColorDefault;
   const dayMap = { mon: '月曜日', tue: '火曜日', wed: '水曜日', thu: '木曜日', fri: '金曜日', sat: '土曜日', sun: '日曜日' };
@@ -73,6 +74,7 @@ const ScheduleSettingsGuide = () => {
       setBufferMin(data.buffer_preparation_min || 0);
       setLeadTime(data.min_lead_time_hours || 0);
       setAutoFill(data.auto_fill_logic ?? true);
+      setMaxCapacity(data.max_capacity || 1); // 👈 追加
     }
   };
 
@@ -82,9 +84,22 @@ const ScheduleSettingsGuide = () => {
       buffer_preparation_min: bufferMin,
       min_lead_time_hours: leadTime,
       auto_fill_logic: autoFill,
+      max_capacity: maxCapacity, // 👈 追加
       ...updates
     };
     await supabase.from('profiles').update(payload).eq('id', shopId);
+  };
+
+  // 🆕 キャパシティ変更時の連動ロジック
+  const handleCapacityChange = async (val) => {
+    const num = parseInt(val);
+    setMaxCapacity(num);
+    if (num > 1) {
+      setAutoFill(false);
+      await saveAll({ max_capacity: num, auto_fill_logic: false });
+    } else {
+      await saveAll({ max_capacity: num });
+    }
   };
 
   const handleNext = () => { window.scrollTo(0,0); setStep(s => s + 1); };
@@ -170,17 +185,56 @@ const ScheduleSettingsGuide = () => {
           </select>
         </StepWrapper>
       );
+      // 🆕 🆕 追加ステップ：同時予約（キャパシティ）
       case 5: return (
+        <StepWrapper title="同時に何名まで予約を受ける？" icon={Users}>
+          <p style={{ color: '#94a3b8', marginBottom: '32px' }}>同じ時間枠に受け入れ可能な最大人数を設定します。</p>
+          <select 
+            value={maxCapacity} 
+            onChange={e => handleCapacityChange(e.target.value)} 
+            style={inputBaseStyle}
+          >
+            {Array.from({ length: 10 }, (_, i) => i + 1).map(num => (
+              <option key={num} value={num}>
+                {num}名（{num === 1 ? 'マンツーマン' : '同時受付可能'}）
+              </option>
+            ))}
+          </select>
+        </StepWrapper>
+      );
+      case 6: return (
         <StepWrapper title="自動詰め機能" icon={Zap}>
-          <div style={{ background: '#1e293b', padding: '30px', borderRadius: '24px', border: `2px solid ${themeColor}`, cursor: 'pointer' }} onClick={() => { const val = !autoFill; setAutoFill(val); saveAll({ auto_fill_logic: val }); }}>
+          <div 
+            style={{ 
+              background: '#1e293b', 
+              padding: '30px', 
+              borderRadius: '24px', 
+              border: `2px solid ${themeColor}`, 
+              cursor: maxCapacity === 1 ? 'pointer' : 'not-allowed', // 👈 1名以外の時は禁止
+              opacity: maxCapacity === 1 ? 1 : 0.6 
+            }} 
+            onClick={() => { 
+              if (maxCapacity > 1) return; // 👈 ガード
+              const val = !autoFill; 
+              setAutoFill(val); 
+              saveAll({ auto_fill_logic: val }); 
+            }}
+          >
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px', justifyContent: 'center' }}>
               <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: autoFill ? themeColor : 'none', border: `2px solid ${themeColor}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{autoFill && <Check size={24} />}</div>
               <span style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>自動詰めを有効にする</span>
             </div>
           </div>
+          
+          {/* 🆕 🆕 メッセージの追加 */}
+          {maxCapacity > 1 && (
+            <p style={{ fontSize: '0.85rem', color: '#ef4444', marginTop: '20px', lineHeight: '1.5', fontWeight: 'bold' }}>
+              ※同時予約を有効にしているため、自動詰め機能はオフに固定されています。
+            </p>
+          )}
         </StepWrapper>
       );
-      case 6: return (
+      case 7: return ( // 👈 ステップ番号を1つずらしました
         <StepWrapper title="設定が完了しました！" icon={CheckCircle2} isLast={true}>
           <div style={{ background: '#1e293b', padding: '40px 20px', borderRadius: '32px', border: `2px solid #10b981`, textAlign: 'center' }}>
             <p style={{ fontSize: '1.1rem', fontWeight: 'bold', color: '#10b981' }}>準備万端です！</p>
@@ -196,9 +250,10 @@ const ScheduleSettingsGuide = () => {
   return (
     <div style={containerStyle}>
       <div style={{ width: '100%', height: '6px', background: '#334155', position: 'fixed', top: 0, left: 0, zIndex: 100 }}>
-        <div style={{ width: `${((step + 1) / 7) * 100}%`, height: '100%', background: themeColor, transition: '0.4s' }} />
+        {/* DENOMINATOR（分母）を 8 に変更 */}
+        <div style={{ width: `${((step + 1) / 8) * 100}%`, height: '100%', background: themeColor, transition: '0.4s' }} />
       </div>
-      {step > 0 && step < 6 && (
+      {step > 0 && step < 7 && (
         <div style={{ position: 'fixed', top: '24px', left: '24px', zIndex: 110 }}>
           <button style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', borderRadius: '50%', width: '44px', height: '44px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={handleBack}><ChevronLeft size={24} /></button>
         </div>
