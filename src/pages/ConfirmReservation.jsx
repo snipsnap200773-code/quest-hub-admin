@@ -16,7 +16,8 @@ function ConfirmReservation() {
     adminTime, 
     lineUser, 
     customShopName,
-    staffId 
+    staffId,
+    fromView 
   } = location.state || {};
   
   const isAdminEntry = !!adminDate; 
@@ -233,13 +234,15 @@ function ConfirmReservation() {
         });
       }
 
-      alert(isAdminEntry ? '爆速ねじ込み完了！' : '予約が完了しました！');
+alert(isAdminEntry ? '爆速ねじ込み完了！' : '予約が完了しました！');
       if (isAdminEntry) {
-        navigate(`/admin/${shopId}/reservations?date=${targetDate}`);
+        // 🆕 fromView を見て戻り先を決定。日付も維持して戻る。
+        const targetPath = fromView === 'timeline' ? 'timeline' : 'reservations';
+        navigate(`/admin/${shopId}/${targetPath}?date=${targetDate}`);
       } else {
         navigate('/');
       }
-
+      
     } catch (err) {
       console.error(err);
       alert(`エラーが発生しました: ${err.message}`);

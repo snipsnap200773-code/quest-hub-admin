@@ -401,7 +401,18 @@ const getStatusAt = (dateStr, timeStr) => {
 const matches = reservations.filter(r => {
   const start = new Date(r.start_time).getTime();
   const end = new Date(r.end_time).getTime();
-  return currentSlotStart >= start && currentSlotStart < end;
+  const isTimeMatch = currentSlotStart >= start && currentSlotStart < end;
+
+  if (isTimeMatch) {
+    // 🆕 修正：ブロック(✕)の場合は、staff_id が null (店全体) のものだけを表示
+    // これにより、スタッフ個人の「✕」や「休み」はカレンダー画面から消えます。
+    if (r.res_type === 'blocked') {
+      return r.staff_id === null;
+    }
+    // 通常の予約（normal）は担当者が誰であっても全て表示します
+    return true;
+  }
+  return false;
 });
 
 // 絞り込まずに、該当する予約があれば「配列」としてそのまま返す
@@ -549,7 +560,13 @@ const insertData = {
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <div style={{ width: '35px', height: '35px', background: themeColor, borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 'bold' }}>S</div>
               <h1 style={{ fontSize: '1.2rem', fontWeight: '900', margin: 0 }}>SnipSnap Admin</h1>
-            </div>
+
+            {/* 🆕 画面切り替えスイッチ（PC版） */}
+  <div style={{ display: 'flex', background: '#f1f5f9', padding: '3px', borderRadius: '8px', marginLeft: '10px' }}>
+    <button style={switchBtnStyle(true)}>カレンダー</button>
+    <button onClick={() => navigate(`/admin/${shopId}/timeline?date=${selectedDate}`)} style={switchBtnStyle(false)}>タイムライン</button>
+  </div>
+</div>
             <button 
               onClick={() => navigate(`/admin/${shopId}`)} 
               style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem', padding: '5px', display: 'flex', alignItems: 'center', color: '#64748b' }}
@@ -590,7 +607,7 @@ const insertData = {
                 gap: '8px'
               }}
               disabled={!isManagementEnabled}
-            >
+            >              
               {isManagementEnabled ? '📊 顧客・売上管理へ' : '🔒 顧客・売上管理 (未解放)'}
             </button>
           </div>
@@ -795,9 +812,14 @@ onClick={() => {
             {/* 🆕 最上部：ねじ込み予約ボタン (通常予約がある場合のみ表示) */}
             {selectedRes?.res_type === 'normal' && (
               <button 
-                onClick={() => navigate(`/shop/${shopId}/reserve`, { 
-                  state: { adminDate: selectedDate, adminTime: targetTime, isAdminMode: true } 
-                })} 
+  onClick={() => navigate(`/shop/${shopId}/reserve`, { 
+    state: { 
+      adminDate: selectedDate, 
+      adminTime: targetTime, 
+      fromView: 'calendar', // ✅ カレンダーから来た目印
+      isAdminMode: true 
+    } 
+  })} 
                 style={{ 
                   width: '100%', 
                   padding: '16px', 
@@ -975,12 +997,17 @@ onClick={() => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '55vh', overflowY: 'auto', padding: '5px' }}>
               {/* 🆕 最上部：ねじ込み予約ボタン (リストModal版) */}
               <div 
-                onClick={() => {
-                  setShowSlotListModal(false);
-                  navigate(`/shop/${shopId}/reserve`, { 
-                    state: { adminDate: selectedDate, adminTime: targetTime, isAdminMode: true } 
-                  });
-                }}
+  onClick={() => {
+    setShowSlotListModal(false);
+    navigate(`/shop/${shopId}/reserve`, { 
+      state: { 
+        adminDate: selectedDate, 
+        adminTime: targetTime, 
+        fromView: 'calendar', // ✅ カレンダーから来た目印
+        isAdminMode: true 
+      } 
+    });
+  }}
                 style={{
                   background: themeColor,
                   padding: '18px',
@@ -1052,12 +1079,19 @@ onClick={() => {
             <h3 style={{ margin: '0 0 10px 0', color: '#64748b', fontSize: '0.9rem' }}>{selectedDate.replace(/-/g, '/')}</h3>
             <p style={{ fontWeight: '900', color: themeColor, fontSize: '2.2rem', margin: '0 0 30px 0' }}>{targetTime}</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <button 
-                onClick={() => navigate(`/shop/${shopId}/reserve`, { state: { adminDate: selectedDate, adminTime: targetTime, isAdminMode: true } })} 
-                style={{ padding: '22px', background: themeColor, color: '#fff', border: 'none', borderRadius: '20px', fontWeight: '900', fontSize: '1.2rem' }}
-              >
-                予約を入れる
-              </button>
+<button 
+  onClick={() => navigate(`/shop/${shopId}/reserve`, { 
+    state: { 
+      adminDate: selectedDate, 
+      adminTime: targetTime, 
+      fromView: 'calendar', // ✅ カレンダーから来た目印
+      isAdminMode: true 
+    } 
+  })} 
+  style={{ padding: '22px', background: themeColor, color: '#fff', border: 'none', borderRadius: '20px', fontWeight: '900', fontSize: '1.2rem' }}
+>
+  予約を入れる
+</button>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                 <button onClick={handleBlockTime} style={{ padding: '15px', background: '#fff', color: themeColor, border: `2px solid ${themeColorLight}`, borderRadius: '20px', fontWeight: 'bold', fontSize: '0.85rem' }}>「✕」または予定</button>
                 <button onClick={handleBlockFullDay} style={{ padding: '15px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '20px', fontWeight: 'bold', fontSize: '0.85rem' }}>今日を休みにする</button>
@@ -1073,5 +1107,17 @@ onClick={() => {
     </div>
   );
 }
-
+// 🆕 画面切り替えスイッチ用のスタイル（これを追加してください）
+const switchBtnStyle = (active) => ({ 
+  padding: '5px 15px', 
+  borderRadius: '6px', 
+  border: 'none', 
+  background: active ? '#fff' : 'transparent', 
+  fontWeight: 'bold', 
+  fontSize: '0.75rem', 
+  cursor: 'pointer', 
+  boxShadow: active ? '0 2px 4px rgba(0,0,0,0.1)' : 'none', 
+  color: active ? '#1e293b' : '#64748b',
+  transition: 'all 0.2s'
+});
 export default AdminReservations;

@@ -14,13 +14,15 @@ function ReservationForm() {
   const isAdminMode = location.state?.adminDate && location.state?.adminTime;
   const adminDate = location.state?.adminDate;
   const adminTime = location.state?.adminTime;
+  const adminStaffId = location.state?.adminStaffId;
+  const fromView = location.state?.fromView;
 
   // 💡 LINE経由判定
   const queryParams = new URLSearchParams(location.search);
   const isLineSource = queryParams.get('source') === 'line';
   const isLineApp = /Line/i.test(navigator.userAgent);
 
-// 🆕 【重要】入り口識別キー（?type=xxx）を取得
+  // 🆕 【重要】入り口識別キー（?type=xxx）を取得
   const entryType = queryParams.get('type');
   // 🆕 スタッフID（?staff=xxx）を取得
   const staffIdFromUrl = queryParams.get('staff');
@@ -30,6 +32,7 @@ function ReservationForm() {
   const [categories, setCategories] = useState([]);
   const [services, setServices] = useState([]);
   const [options, setOptions] = useState([]);
+  const [targetStaffName, setTargetStaffName] = useState(''); // 🆕 担当者名表示用
 
   // --- 複数名予約用のState ---
   const [people, setPeople] = useState([]); 
@@ -45,7 +48,7 @@ function ReservationForm() {
   const categoryRefs = useRef({});
   const serviceRefs = useRef({});
 
-useEffect(() => {
+  useEffect(() => {
     // 🆕 ページ表示時に強制的に最上部へ
     window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
 
@@ -82,6 +85,14 @@ useEffect(() => {
         desc: shopRes.data.description 
       });
 
+      // 🆕 管理者モード：ねじ込み対象スタッフの名前を取得
+      if (isAdminMode && adminStaffId) {
+        const { data: sData } = await supabase.from('staffs').select('name').eq('id', adminStaffId).single();
+        if (sData) setTargetStaffName(sData.name);
+      } else if (isAdminMode && !adminStaffId) {
+        setTargetStaffName('フリー（担当なし）');
+      }
+
       if (!shopRes.data.is_suspended) {
         // カテゴリ取得
         let catQuery = supabase.from('service_categories').select('*').eq('shop_id', shopId).order('sort_order');
@@ -96,7 +107,6 @@ useEffect(() => {
           setCategories(filteredCats);
 
           // 🆕 3. 【強制着せ替えロジック】
-          // URLにtypeがある場合、そのurl_keyを持つカテゴリから専用屋号と専用説明文を取得して表示を上書きする
           if (entryType) {
             const brandingSource = catRes.data.find(c => c.url_key === entryType);
             if (brandingSource) {
@@ -140,7 +150,7 @@ useEffect(() => {
   const isTotalTimeOk = totalSlotsNeeded > 0;
   const isRequiredMet = checkRequiredMet();
 
-const handleAddPerson = () => {
+  const handleAddPerson = () => {
     if (people.length >= 3) return; 
     
     // ✅ 修正：合体名を作ってから保存する
@@ -235,7 +245,7 @@ const handleAddPerson = () => {
     if (Object.keys(grouped).every(gn => newOptions[`${serviceId}-${gn}`])) scrollToNextValidCategory(catIdx);
   };
 
-const handleNextStep = () => {
+  const handleNextStep = () => {
     window.scrollTo(0,0);
 
     // ✅ 修正：現在の人（n人目）の合体メニュー名を作る
@@ -253,20 +263,22 @@ const handleNextStep = () => {
       }],
       totalSlotsNeeded,
       lineUser,
-      customShopName: displayBranding.name 
+      customShopName: displayBranding.name,
+      staffId: adminStaffId || staffIdFromUrl,
+      fromView: fromView
     };
 
-if (isAdminMode) {
-  // 管理者モードの場合も、念のためURLパラメータを維持
-  const adminUrl = `/shop/${shopId}/confirm${staffIdFromUrl ? `?staff=${staffIdFromUrl}` : ''}`;
-  navigate(adminUrl, { 
-    state: { ...commonState, date: adminDate, time: adminTime, adminDate, adminTime } 
-  });
-} else {
-  // 🆕 URLの末尾に ?staff=xxx を付け足して移動する
-  const nextUrl = `/shop/${shopId}/reserve/time${staffIdFromUrl ? `?staff=${staffIdFromUrl}` : ''}`;
-  navigate(nextUrl, { state: commonState });
-}
+    if (isAdminMode) {
+      // 🆕 管理者モード：日時選択をスキップして直接確定（Confirm）画面へ
+      const confirmUrl = `/shop/${shopId}/confirm${adminStaffId ? `?staff=${adminStaffId}` : ''}`;
+      navigate(confirmUrl, { 
+        state: { ...commonState, date: adminDate, time: adminTime, adminDate, adminTime } 
+      });
+    } else {
+      // 🆕 一般予約：通常通り日時選択へ移動
+      const nextUrl = `/shop/${shopId}/reserve/time${staffIdFromUrl ? `?staff=${staffIdFromUrl}` : ''}`;
+      navigate(nextUrl, { state: commonState });
+    }
   };
 
   const getGroupedOptions = (serviceId) => {
@@ -317,8 +329,14 @@ if (isAdminMode) {
         )}
 
         {isAdminMode && (
-          <div style={{ background: '#fef3c7', color: '#92400e', padding: '8px 12px', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '15px' }}>
-            ⚠️ 管理者モード：{adminDate} {adminTime} の予約を作成中
+          <div style={{ background: '#fef3c7', color: '#92400e', padding: '12px', borderRadius: '12px', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '15px', border: '1px solid #fcd34d' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>⚠️ 管理者ねじ込み予約：確定画面へ直行します</span>
+            </div>
+            <div style={{ marginTop: '5px', fontSize: '0.75rem', opacity: 0.9 }}>
+              日時：{adminDate} {adminTime}<br />
+              担当：{targetStaffName}
+            </div>
           </div>
         )}
         
@@ -440,8 +458,8 @@ if (isAdminMode) {
             >
               {!allOptionsSelected ? 'オプションを選択してください' 
                : !isRequiredMet ? '必須メニューが未選択です' 
-               : isAdminMode ? `予約をねじ込む (${totalSlotsNeeded * (shop.slot_interval_min || 15)}分)`
-               : `日時選択へ進む (${totalSlotsNeeded * (shop.slot_interval_min || 15)}分)`}
+               : isAdminMode ? `予約内容を確定する (${totalSlotsNeeded * (shop?.slot_interval_min || 15)}分)`
+               : `日時選択へ進む (${totalSlotsNeeded * (shop?.slot_interval_min || 15)}分)`}
             </button>
           </div>
         )}

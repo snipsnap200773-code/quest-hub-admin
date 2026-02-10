@@ -15,6 +15,7 @@ import CancelReservation from './pages/CancelReservation';
 import ShopList from './pages/ShopList';
 import AdminManagement from './pages/AdminManagement';
 import ShopDetail from './pages/ShopDetail';
+import AdminTimeline from './pages/AdminTimeline'; // 🆕 これを追加
 
 // 🆕 QUEST HUB 個別設定ページ
 import BasicSettings from './pages/admin/settings/BasicSettings';
@@ -93,6 +94,7 @@ function App() {
               <Route path="/shop/:shopId/confirm" element={<ConfirmReservation />} />
               <Route path="/cancel" element={<CancelReservation />} />
               <Route path="/shop/:shopId/admin" element={<AdminDashboard />} />
+              <Route path="/admin/:shopId/timeline" element={<AdminTimeline />} />
             </Routes>
           </div>
         } />
