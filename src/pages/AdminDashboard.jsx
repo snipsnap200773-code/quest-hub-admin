@@ -11,23 +11,60 @@ const AdminDashboard = () => {
   const { shopId } = useParams();
   const navigate = useNavigate();
   const [shopData, setShopData] = useState(null);
+  
+  // 🆕 ログイン状態の初期値を sessionStorage から取得するように修正
+  const [isAuthorized, setIsAuthorized] = useState(
+    sessionStorage.getItem(`auth_${shopId}`) === 'true'
+  );
+  const [inputPass, setInputPass] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (shopId) fetchShopData();
+    const fetchInitialData = async () => {
+      if (!shopId) return;
+      setIsLoading(true);
+      const { data } = await supabase.from('profiles').select('*').eq('id', shopId).single();
+      if (data) setShopData(data);
+      setIsLoading(false);
+    };
+    fetchInitialData();
   }, [shopId]);
 
-  const fetchShopData = async () => {
-    const { data } = await supabase.from('profiles').select('*').eq('id', shopId).single();
-    if (data) setShopData(data);
+  // 🆕 判定処理：成功時に sessionStorage へ保存するロジックを追加
+  const handleLogin = (e) => {
+    e.preventDefault();
+    if (inputPass === shopData?.admin_password) {
+      sessionStorage.setItem(`auth_${shopId}`, 'true'); // ログイン状態をブラウザに記憶
+      setIsAuthorized(true);
+    } else {
+      alert('パスワードが違います');
+      setInputPass('');
+    }
   };
 
   const themeColor = shopData?.theme_color || '#2563eb';
 
-  // --- スタイル定義 ---
-  const containerStyle = { maxWidth: '900px', margin: '0 auto', padding: '20px', background: '#f8fafc', minHeight: '100vh', fontFamily: 'sans-serif' };
-  const headerStyle = { marginBottom: '30px', borderBottom: '1px solid #e2e8f0', paddingBottom: '20px' };
-  const gridStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' };
+  // --- スタイル定義 (ログイン画面用) ---
+  const smallInput = { padding: '12px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem', width: '100%', boxSizing: 'border-box', outline: 'none' };
+  const primaryBtn = { width: '100%', padding: '14px', background: themeColor, color: '#fff', border: 'none', borderRadius: '12px', fontWeight: 'bold', cursor:'pointer' };
   
+  // --- ダッシュボード用スタイル (ワイド化修正済み) ---
+  const containerStyle = { 
+    maxWidth: '1400px', // 🆕 900pxから大幅拡張
+    width: '95%',       // 🆕 両サイドの余白を最小限に
+    margin: '0 auto', 
+    padding: '30px 20px', 
+    background: '#f8fafc', 
+    minHeight: '100vh', 
+    fontFamily: 'sans-serif' 
+  };
+
+  const gridStyle = { 
+    display: 'grid', 
+    gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', // 🆕 カード幅も少し調整
+    gap: '24px' 
+  };
+
   const cardStyle = { 
     background: '#fff', padding: '32px 24px', borderRadius: '24px', border: '1px solid #e2e8f0', 
     display: 'flex', flexDirection: 'column', alignItems: 'center', 
@@ -42,10 +79,37 @@ const AdminDashboard = () => {
     display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '16px' 
   });
 
+  // ロード中は何も出さない
+  if (isLoading) return null;
+
+  // 認証されていない場合はログインフォームを表示
+  if (!isAuthorized) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', backgroundColor: '#f0f2f5' }}>
+        <form onSubmit={handleLogin} style={{ background: '#fff', padding: '40px 30px', borderRadius: '20px', textAlign: 'center', width: '100%', maxWidth: '350px', boxShadow: '0 10px 25px rgba(0,0,0,0.05)' }}>
+          <h2 style={{ color: '#e60012', marginBottom: '10px', fontWeight: '900', fontSize: '1.4rem' }}>
+            {shopData?.business_name || 'QUEST HUB'}
+          </h2>
+          <p style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '25px', fontWeight: 'bold' }}>ADMIN LOGIN</p>
+          <input 
+            type="password" 
+            value={inputPass} 
+            onChange={(e) => setInputPass(e.target.value)} 
+            placeholder="管理者パスワード" 
+            style={smallInput} 
+            autoFocus 
+          />
+          <button type="submit" style={{ ...primaryBtn, marginTop: '20px' }}>ログイン</button>
+        </form>
+      </div>
+    );
+  }
+
+  // ✅ ログイン成功時のみ表示されるダッシュボード本体
   return (
     <div style={containerStyle}>
       {/* ヘッダーエリア */}
-      <header style={headerStyle}>
+      <header style={{ marginBottom: '30px', borderBottom: '1px solid #e2e8f0', paddingBottom: '20px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
           <div>
             <h1 style={{ margin: 0, fontSize: '1.5rem', color: '#1e293b', fontWeight: 'bold' }}>
@@ -71,7 +135,7 @@ const AdminDashboard = () => {
           cardStyle={cardStyle} iconBoxStyle={iconBoxStyle} 
         />
 
-        {/* スタッフ管理（ここに追加！） */}
+        {/* スタッフ管理 */}
         <NavCard 
           title="スタッフ管理" desc="担当者の登録・カラー設定・表示順" icon={<Users size={28} />} color="#f43f5e"
           to={`/admin/${shopId}/settings/staff`}
@@ -129,7 +193,7 @@ const AdminDashboard = () => {
   );
 };
 
-// --- サブコンポーネント：NavCard (リニューアル版) ---
+// --- サブコンポーネント：NavCard ---
 const NavCard = ({ to, title, desc, icon, color, cardStyle, iconBoxStyle }) => {
   return (
     <Link 
@@ -150,7 +214,6 @@ const NavCard = ({ to, title, desc, icon, color, cardStyle, iconBoxStyle }) => {
       <h3 style={{ margin: '0 0 8px', color: '#1e293b', fontSize: '1.2rem', fontWeight: 'bold' }}>{title}</h3>
       <p style={{ margin: '0', color: '#64748b', fontSize: '0.85rem', lineHeight: '1.5' }}>{desc}</p>
       
-      {/* 右下の小さな矢印演出 */}
       <div style={{ position: 'absolute', bottom: '20px', right: '20px', color: '#cbd5e1' }}>
         <ChevronRight size={20} />
       </div>
@@ -158,7 +221,6 @@ const NavCard = ({ to, title, desc, icon, color, cardStyle, iconBoxStyle }) => {
   );
 };
 
-// ヘルパー用（ChevronRightが必要なため追加）
 const ChevronRight = ({ size, color }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
 );

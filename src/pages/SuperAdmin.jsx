@@ -32,8 +32,6 @@ function SuperAdmin() {
   const [newBusinessType, setNewBusinessType] = useState('');
   const [newEmail, setNewEmail] = useState('');
   const [newPhone, setNewPhone] = useState('');
-  const [newLineToken, setNewLineToken] = useState('');
-  const [newLineAdminId, setNewLineAdminId] = useState('');
 
   const [editingShopId, setEditingShopId] = useState(null);
   const [editName, setEditName] = useState('');
@@ -111,6 +109,7 @@ function SuperAdmin() {
 
     // 1. データベースに登録
     const { data, error } = await supabase.from('profiles').insert([{ 
+      id: crypto.randomUUID(), // 🆕 ここで新しくIDを生成して追加
       business_name: newShopName, 
       business_name_kana: newShopKana, 
       owner_name: newOwnerName, 
@@ -119,8 +118,6 @@ function SuperAdmin() {
       email_contact: newEmail, 
       phone: newPhone, 
       admin_password: newPass, 
-      line_channel_access_token: newLineToken, 
-      line_admin_user_id: newLineAdminId, 
       notify_line_enabled: true, 
       is_management_enabled: false 
     }]).select(); // 作成したIDを取得するためにselect()を追加
@@ -159,10 +156,9 @@ function SuperAdmin() {
 
     alert(`「${newShopName}」作成完了！\n店主様へログイン情報を送信しました。\nPW: ${newPass}`);
     
-    // フォームリセット
+// フォームリセット
     setNewShopName(''); setNewShopKana(''); setNewOwnerName(''); setNewOwnerNameKana('');
-    setNewEmail(''); setNewPhone(''); setNewLineToken(''); setNewLineAdminId('');
-    setIsProcessing(false);
+    setNewEmail(''); setNewPhone('');    setIsProcessing(false);
     fetchCreatedShops();
     setActiveTab('list');
   };
@@ -277,12 +273,6 @@ function SuperAdmin() {
         <input value={newEmail} onChange={(e) => setNewEmail(e.target.value)} placeholder="店主様メールアドレス（必須）" style={smallInput} />
         <input value={newPhone} onChange={(e) => setNewPhone(e.target.value)} placeholder="電話" style={smallInput} />
         
-        <div style={{ padding: '10px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
-          <p style={{ margin: '0 0 8px 0', fontSize: '0.7rem', fontWeight: 'bold', color: '#64748b' }}>LINE通知の初期設定（任意）</p>
-          <input value={newLineToken} onChange={(e) => setNewLineToken(e.target.value)} placeholder="LINE Token" style={{...smallInput, marginBottom: '8px', fontSize: '0.8rem'}} />
-          <input value={newLineAdminId} onChange={(e) => setNewLineAdminId(e.target.value)} placeholder="LINE Admin ID" style={{...smallInput, fontSize: '0.8rem'}} />
-        </div>
-
         <button 
           onClick={createNewShop} 
           disabled={isProcessing}
