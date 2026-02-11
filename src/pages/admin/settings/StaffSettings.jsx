@@ -12,9 +12,9 @@ const StaffSettings = () => {
   const [staffs, setStaffs] = useState([]);
   const [newStaffName, setNewStaffName] = useState('');
   const [loading, setLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(null); // 保存中のスタッフIDを保持
-  const [copiedId, setCopiedId] = useState(null); // コピー成功表示用
-  const [showQrId, setShowQrId] = useState(null); // QR表示の切り替え用
+  const [isSaving, setIsSaving] = useState(null); 
+  const [copiedId, setCopiedId] = useState(null); 
+  const [showQrId, setShowQrId] = useState(null); 
 
   const DAYS = ['日', '月', '火', '水', '木', '金', '土'];
 
@@ -31,7 +31,6 @@ const StaffSettings = () => {
       .order('created_at', { ascending: true });
     
     if (data) {
-      // データの初期化：weekly_holidaysがnullなら空配列にする
       const initialized = data.map(s => ({
         ...s,
         weekly_holidays: s.weekly_holidays || []
@@ -41,7 +40,6 @@ const StaffSettings = () => {
     setLoading(false);
   };
 
-  // ✅ 予約URLコピー機能
   const copyUrl = (staffId) => {
     const url = `${window.location.origin}/shop/${shopId}/reserve?staff=${staffId}`;
     navigator.clipboard.writeText(url);
@@ -68,7 +66,22 @@ const StaffSettings = () => {
     }
   };
 
-  // ✅ 休日（曜日）の切り替え
+  // 🆕 スタッフ削除を実行する関数 (追加分)
+  const deleteStaff = async (id) => {
+    const targetStaff = staffs.find(s => s.id === id);
+    if (!window.confirm(`${targetStaff?.name} さんを削除しますか？\n（過去の予約データには影響しません）`)) {
+      return;
+    }
+    try {
+      const { error } = await supabase.from('staffs').delete().eq('id', id);
+      if (error) throw error;
+      setStaffs(staffs.filter(s => s.id !== id));
+      alert('スタッフを削除しました。');
+    } catch (err) {
+      alert('削除に失敗しました: ' + err.message);
+    }
+  };
+
   const toggleHoliday = (staffId, dayIndex) => {
     setStaffs(prev => prev.map(s => {
       if (s.id !== staffId) return s;
@@ -80,7 +93,6 @@ const StaffSettings = () => {
     }));
   };
 
-// ✅ スタッフ設定の保存（DB更新）
   const saveStaffSetting = async (staff) => {
     setIsSaving(staff.id);
     const { error } = await supabase
@@ -88,14 +100,14 @@ const StaffSettings = () => {
       .update({ 
         name: staff.name,
         weekly_holidays: staff.weekly_holidays,
-        concurrent_capacity: staff.concurrent_capacity || 1 // 🆕 これを追加！
+        concurrent_capacity: staff.concurrent_capacity || 1 
       })
       .eq('id', staff.id);
 
     if (!error) {
       alert(`${staff.name}さんの設定を保存しました！`);
     } else {
-      console.error(error); // エラー内容をログに出すとデバッグしやすいです
+      console.error(error); 
       alert("保存に失敗しました。SQLでカラム追加はお済みですか？");
     }
     setIsSaving(null);
@@ -117,7 +129,6 @@ const StaffSettings = () => {
           <h2 style={{ margin: 0, fontSize: '1.25rem', color: '#1e293b' }}>スタッフ管理</h2>
         </div>
 
-        {/* 新規追加フォーム */}
         <div style={{ display: 'flex', gap: '10px', marginBottom: '30px' }}>
           <input 
             type="text" 
@@ -131,10 +142,8 @@ const StaffSettings = () => {
           </button>
         </div>
 
-        {/* スタッフ一覧 */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {staffs.map(staff => {
-            // 個別URLとQRの生成
             const bookingUrl = `${window.location.origin}/shop/${shopId}/reserve?staff=${staff.id}`;
             const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(bookingUrl)}`;
 
@@ -165,7 +174,6 @@ const StaffSettings = () => {
                   </div>
                 </div>
 
-                {/* 🔗 予約リンク・ツール（追加機能） */}
                 <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
                   <button 
                     onClick={() => copyUrl(staff.id)} 
@@ -192,7 +200,6 @@ const StaffSettings = () => {
                   </button>
                 </div>
 
-{/* 🖼️ QRコード表示エリア（追加機能） */}
                 {showQrId === staff.id && (
                   <div style={{ textAlign: 'center', background: '#fff', padding: '20px', borderRadius: '15px', border: '1px solid #e2e8f0', marginBottom: '20px' }}>
                     <p style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '10px' }}>{staff.name}さん専用の予約QRコード</p>
@@ -207,7 +214,6 @@ const StaffSettings = () => {
                   </div>
                 )}
 
-                {/* 🆕 同時並行予約の上限設定：QRコードと定休日の間に追加 */}
                 <div style={{ marginBottom: '25px', padding: '15px', background: '#fff', borderRadius: '15px', border: '1px solid #e2e8f0' }}>
                   <div style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <Users size={14} /> 同時並行 予約受け入れ上限（人）
@@ -233,7 +239,6 @@ const StaffSettings = () => {
                   </div>
                 </div>
 
-                {/* 🆕 曜日ごとの休日設定 */}
                 <div>
                   <div style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <Calendar size={14} /> 定休日（毎週）

@@ -817,7 +817,8 @@ onClick={() => {
       adminDate: selectedDate, 
       adminTime: targetTime, 
       fromView: 'calendar', // ✅ カレンダーから来た目印
-      isAdminMode: true 
+      isAdminMode: true,
+      adminStaffId: staffs.length === 1 ? staffs[0].id : null
     } 
   })} 
                 style={{ 
@@ -1004,7 +1005,8 @@ onClick={() => {
         adminDate: selectedDate, 
         adminTime: targetTime, 
         fromView: 'calendar', // ✅ カレンダーから来た目印
-        isAdminMode: true 
+        isAdminMode: true,
+        adminStaffId: staffs.length === 1 ? staffs[0].id : null
       } 
     });
   }}
@@ -1085,7 +1087,8 @@ onClick={() => {
       adminDate: selectedDate, 
       adminTime: targetTime, 
       fromView: 'calendar', // ✅ カレンダーから来た目印
-      isAdminMode: true 
+      isAdminMode: true,
+      adminStaffId: staffs.length === 1 ? staffs[0].id : null
     } 
   })} 
   style={{ padding: '22px', background: themeColor, color: '#fff', border: 'none', borderRadius: '20px', fontWeight: '900', fontSize: '1.2rem' }}
