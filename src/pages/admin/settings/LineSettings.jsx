@@ -45,6 +45,28 @@ const LineSettings = () => {
 
     if (!error) showMsg('LINE連携設定を保存しました！');
     else alert('保存に失敗しました。');
+};
+
+  // 🆕 ここに追加！
+  const handleTestNotify = async () => {
+    if (!lineToken || !lineAdminId) {
+      alert("トークンとユーザーIDを入力してからテストしてください。");
+      return;
+    }
+    try {
+      const { error } = await supabase.functions.invoke('resend', {
+        body: {
+          type: 'test',
+          shopId: shopId,
+          lineUserId: lineAdminId,
+          message: `✅ クエストハブ：LINE連携テスト成功！\n店舗ID: ${shopId}`
+        }
+      });
+      if (error) throw error;
+      alert("テストメッセージを送信しました！LINEのトークを確認してください。");
+    } catch (err) {
+      alert("送信エラー: " + err.message);
+    }
   };
 
   // --- スタイル定義 (リニューアル統一版) ---
@@ -150,6 +172,28 @@ const LineSettings = () => {
         }}
       >
         <Save size={20} /> 連携設定を保存する 💾
+</button><br></br>
+
+
+      <button 
+        onClick={handleTestNotify} 
+        style={{ 
+          width: '100%', 
+          padding: '14px', 
+          background: '#fff', 
+          color: '#00b900', 
+          border: '2px solid #00b900', 
+          borderRadius: '16px', 
+          fontWeight: 'bold', 
+          fontSize: '0.95rem',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '8px'
+        }}
+      >
+        <Bell size={18} /> テスト通知を送ってみる 🚀
       </button>
 
       <div style={{ marginTop: '24px', padding: '20px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', display: 'flex', gap: '12px' }}>
