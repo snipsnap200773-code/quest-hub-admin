@@ -674,17 +674,18 @@ const insertData = {
     // 🆕 Spring（バネ）設定
     transition={{ 
       type: "spring", 
-      stiffness: 260, // バネの強さ（大きいほど速い）
-      damping: 26,    // 抵抗（大きいほど揺れがすぐ止まる）
-      mass: 0.5       // 軽さ（小さいほど軽快に動く）
+      stiffness: 400, // バネの強さ（大きいほど速い）
+      damping: 30,    // 抵抗（大きいほど揺れがすぐ止まる）
+      mass: 0.2,       // 軽さ（小さいほど軽快に動く）
+      opacity: { duration: 0.1 } // 透明度の変化だけは一瞬で終わらせる
     }}
 
     drag="x" 
     dragConstraints={{ left: 0, right: 0 }}
-    dragElastic={0.1} // ✅ ゴムのような伸びを小さくして、ピタッと止まるように変更
+    dragElastic={0.05} // ✅ ゴムのような伸びを小さくして、ピタッと止まるように変更
     // ...あとの設定はそのまま...              
               onDragEnd={(e, { offset }) => {
-                const swipeThreshold = 80;
+                const swipeThreshold = 50;
                 if (offset.x > swipeThreshold) goPrev(); // 右スワイプで前週
                 else if (offset.x < -swipeThreshold) goNext(); // 左スワイプで次週
               }}
