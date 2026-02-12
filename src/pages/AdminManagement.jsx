@@ -97,7 +97,7 @@ const fetchInitialData = async () => {
         supabase.from('service_categories').select('*').eq('shop_id', cleanShopId).order('sort_order'),
         supabase.from('services').select('*').eq('shop_id', cleanShopId).order('sort_order'),
         supabase.from('service_options').select('*'),
-        supabase.from('admin_adjustments').select('*'),
+        supabase.from('admin_adjustments').select('*').eq('shop_id', cleanShopId),
         supabase.from('products').select('*').eq('shop_id', cleanShopId).order('sort_order'),
         supabase.from('sales').select('*').eq('shop_id', cleanShopId).gte('sale_date', startOfYear).lte('sale_date', endOfYear)
       ]);
@@ -349,8 +349,17 @@ options: {
     try {
       const formattedServices = services.map(svc => ({ id: svc.id, shop_id: cleanShopId, name: svc.name, price: svc.price || 0, category: svc.category, sort_order: svc.sort_order || 0, slots: svc.slots || 1 }));
       const formattedOptions = serviceOptions.map(opt => ({ id: opt.id, service_id: opt.service_id, group_name: opt.group_name, option_name: opt.option_name, additional_price: opt.additional_price || 0 }));
-      const formattedAdjustments = adminAdjustments.map(adj => ({ id: adj.id, service_id: adj.service_id, name: adj.name, price: adj.price || 0, is_percent: adj.is_percent || false, is_minus: adj.is_minus || false, category: adj.service_id ? null : (adj.category || 'その他') }));
-      const formattedProducts = products.map((p, i) => ({ id: p.id, shop_id: cleanShopId, name: p.name, price: p.price || 0, sort_order: i }));
+const formattedAdjustments = adminAdjustments.map(adj => ({ 
+        id: adj.id, 
+        shop_id: cleanShopId, // ✅ 🆕 保存時に店舗IDをセット
+        service_id: adj.service_id, 
+        name: adj.name, 
+        price: adj.price || 0, 
+        is_percent: adj.is_percent || false, 
+        is_minus: adj.is_minus || false, 
+        category: adj.service_id ? null : (adj.category || 'その他') 
+      }));
+            const formattedProducts = products.map((p, i) => ({ id: p.id, shop_id: cleanShopId, name: p.name, price: p.price || 0, sort_order: i }));
       await Promise.all([ supabase.from('services').upsert(formattedServices), supabase.from('service_options').upsert(formattedOptions), supabase.from('admin_adjustments').upsert(formattedAdjustments), supabase.from('products').upsert(formattedProducts) ]);
       alert("保存しました。"); fetchInitialData();
     } catch (err) { alert("保存失敗: " + err.message); } finally { setIsSaving(false); }
