@@ -770,7 +770,25 @@ const insertData = {
                                   (!isArray && res.res_type === 'system_blocked') ? <span style={{fontSize:'0.6rem'}}>{res.customer_name}</span> : 
                                   (isStart ? (
                                     <div style={{ fontWeight: 'bold', fontSize: isPC ? '0.9rem' : 'calc(0.7rem + 0.2vw)', lineHeight: '1.1', height: '100%', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                                      {reservationCount > 1 ? <span style={{ fontSize: '1.1rem' }}>👥 {reservationCount}名</span> : (isPC ? `${res[0].customer_name} 様` : getFamilyName(res[0].customer_name))}
+{reservationCount > 1 ? (
+  <span style={{ fontSize: '1.1rem' }}>👥 {reservationCount}名</span>
+) : (
+  isPC ? (
+    `${res[0].customer_name} 様`
+  ) : (
+    <div style={{ 
+      writingMode: 'vertical-rl', 
+      textOrientation: 'upright', 
+      fontSize: '0.75rem', 
+      fontWeight: 'bold', 
+      lineHeight: '1',
+      maxHeight: '55px', // セルの高さに合わせて調整
+      overflow: 'hidden'
+    }}>
+      {res[0].customer_name}
+    </div>
+  )
+)}
                                     </div>
                                   ) : isArray ? '・' : '')
                                 )}
