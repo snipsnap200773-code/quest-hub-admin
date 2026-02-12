@@ -81,7 +81,10 @@ const MenuSettings = () => {
     const table = type === 'category' ? 'service_categories' : 'services';
     const updates = newList.map((item, i) => ({ 
       id: item.id, shop_id: shopId, sort_order: i, name: item.name, 
-      ...(type === 'service' ? { slots: item.slots, category: item.category } : {}) 
+      ...(type === 'service' ? { 
+  slots: Number(item.slots || 0), // ✅ ここでも Number化し、なければ0にする
+  category: item.category 
+} : {}) 
     }));
     await supabase.from(table).upsert(updates); fetchMenuDetails();
   };
@@ -128,7 +131,12 @@ const MenuSettings = () => {
   const handleServiceSubmit = async (e) => {
     e.preventDefault();
     const finalCategory = selectedCategory || (categories[0]?.name || 'その他');
-    const serviceData = { shop_id: shopId, name: newServiceName, slots: newServiceSlots, category: finalCategory };
+    const serviceData = { 
+  shop_id: shopId, 
+  name: newServiceName, 
+  slots: Number(newServiceSlots), // ✅ Number() で囲って確実に数字にする
+  category: finalCategory 
+};
     if (editingServiceId) await supabase.from('services').update(serviceData).eq('id', editingServiceId);
     else await supabase.from('services').insert([{ ...serviceData, sort_order: services.length }]);
     setEditingServiceId(null); setNewServiceName(''); setNewServiceSlots(1); fetchMenuDetails(); showMsg('メニューを保存しました');

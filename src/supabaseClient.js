@@ -8,15 +8,34 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 /**
- * 🛡️ 1. メインクライアント（データベース・ストレージ用）
- * 修正内容：新しいプロジェクトでエラーの原因となる 'x-shop-id' ヘッダーを削除しました。
- * これにより、標準的な REST API 通信が可能になります。
+ * 🆔 URLからshopIdを自動抽出するヘルパー
+ * 例: /admin/d1669717.../dashboard -> d1669717...
  */
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const getShopIdFromUrl = () => {
+  if (typeof window === 'undefined') return 'public';
+  const path = window.location.pathname;
+  // URLの /admin/:id/ や /shop/:id/ の部分を抽出
+  const match = path.match(/\/(admin|shop)\/([^/]+)/);
+  return match ? match[2] : 'public';
+};
+
+/**
+ * 🛡️ 1. メインクライアント（データベース・ストレージ用）
+ * 修正内容：RLSの「魔法のポリシー」を通るための 'x-shop-id' ヘッダーを自動付与します。
+ * これにより、コード側で where('shop_id', ...) を書き忘れても、DBが自動で自店舗のデータに絞り込みます。
+ */
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  global: {
+    headers: {
+      'x-shop-id': getShopIdFromUrl()
+    }
+  }
+});
 
 /**
  * ✉️ 2. 通知専用クライアント（Edge Functions用）
- * メインクライアントとのセッション衝突を避けるための設定を維持しています。
+ * メインクライアントとのセッション衝突を避けるための設定を維持。
+ * 通知処理には shop_id 制限をかけないため、こちらは標準設定のままにします。
  */
 export const supabaseAnon = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
