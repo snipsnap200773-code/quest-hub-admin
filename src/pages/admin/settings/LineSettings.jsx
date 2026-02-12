@@ -16,7 +16,7 @@ const LineSettings = () => {
   const [notifyLineRemindEnabled, setNotifyLineRemindEnabled] = useState(false);
   const [lineToken, setLineToken] = useState('');
   const [lineAdminId, setLineAdminId] = useState('');
-  const [themeColor, setThemeColor] = useState('#2563eb');
+  const [liffId, setLiffId] = useState('');
 
   useEffect(() => {
     if (shopId) fetchLineData();
@@ -29,7 +29,7 @@ const LineSettings = () => {
       setNotifyLineRemindEnabled(data.notify_line_remind_enabled ?? false);
       setLineToken(data.line_channel_access_token || '');
       setLineAdminId(data.line_admin_user_id || '');
-      setThemeColor(data.theme_color || '#2563eb');
+      setLiffId(data.liff_id || '');
     }
   };
 
@@ -40,7 +40,8 @@ const LineSettings = () => {
       notify_line_enabled: notifyLineEnabled,
       notify_line_remind_enabled: notifyLineRemindEnabled,
       line_channel_access_token: lineToken,
-      line_admin_user_id: lineAdminId
+      line_admin_user_id: lineAdminId,
+      liff_id: liffId
     }).eq('id', shopId);
 
     if (!error) showMsg('LINE連携設定を保存しました！');
@@ -147,6 +148,18 @@ const LineSettings = () => {
               onChange={(e) => setLineAdminId(e.target.value)} 
               style={inputStyle} 
               placeholder="Uxxxx... から始まるIDを入力"
+            />
+
+            {/* 🆕 LIFF ID 入力枠の追加 */}
+            <label style={labelStyle}>
+              <ExternalLink size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> 
+              LIFF ID (予約フォーム起動用)
+            </label>
+            <input 
+              value={liffId} 
+              onChange={(e) => setLiffId(e.target.value)} 
+              style={inputStyle} 
+              placeholder="20桁程度の英数字を入力"
             />
           </div>
         </div>
