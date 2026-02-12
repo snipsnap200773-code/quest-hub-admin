@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 
@@ -658,144 +659,124 @@ const insertData = {
           )}
         </div>
 
-        <div style={{ flex: 1, overflowY: 'auto', overflowX: isPC ? 'auto' : 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: isPC ? '900px' : '100%' }}>
-            <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: '#fff' }}>
-              <tr>
-                <th style={{ width: isPC ? '80px' : '32px', borderBottom: '1px solid #ddd' }}></th>
-                {weekDays.map(date => {
-                  const isToday = getJapanDateStr(new Date()) === getJapanDateStr(date);
-                  return (
-                    <th key={date.toString()} style={{ padding: '4px 0', borderBottom: '1px solid #ddd' }}>
-                      <div style={{ fontSize: '0.6rem', color: isToday ? themeColor : '#666' }}>{['日','月','火','水','木','金','土'][date.getDay()]}</div>
-                      <div style={{ fontSize: isPC ? '1.5rem' : '0.9rem', fontWeight: 'bold', color: isToday ? '#fff' : '#333', background: isToday ? themeColor : 'none', width: isPC ? '40px' : '22px', height: isPC ? '40px' : '22px', borderRadius: '50%', margin: '2px auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{date.getDate()}</div>
-                    </th>
-                  );
-                })}
-              </tr>
-            </thead>
-            <tbody>
-              {timeSlots.map(time => (
-                <tr key={time} style={{ height: '60px' }}>
-                  <td style={{ borderRight: '1px solid #eee', borderBottom: '1px solid #f1f5f9', textAlign: 'center' }}>
-                    <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 'bold' }}>{time}</span>
-                  </td>
-{weekDays.map(date => {
-  const dStr = getJapanDateStr(date);
-  const res = getStatusAt(dStr, time); // res は [予約1, 予約2...] という配列、または 定休日/空きのオブジェクト
-  
-  // 配列（予約あり）か、オブジェクト（定休日など）か、null（空き）かを判定
-  const isArray = Array.isArray(res);
-  const reservationCount = isArray ? res.length : 0;
-  
-  // 配列の中に「今から始まる予約」が含まれているか
-  const isStart = isArray && res.some(r => 
-    new Date(r.start_time).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false }) === time
-  );
-
-  // 他店舗の予約が含まれているか
-  const isOtherShop = isArray && res.some(r => r.shop_id !== shopId && r.res_type !== 'system_blocked' && !r.isRegularHoliday);
-
-  // --- 色の決定ロジック ---
-  let bgColor = '#fff'; let borderColor = '#f1f5f9'; let textColor = '#cbd5e1';
-  
-  if (res) {
-    if (!isArray && res.isRegularHoliday) { 
-      bgColor = '#f3f4f6'; textColor = '#94a3b8'; 
-    } else if (isOtherShop) { 
-      bgColor = '#f1f5f9'; textColor = '#94a3b8'; borderColor = '#cbd5e1'; 
-    } else if (isArray && res.some(r => r.res_type === 'blocked')) { 
-      // 1つでもブロックがあれば赤系にする
-      bgColor = '#fee2e2'; textColor = '#ef4444'; borderColor = '#ef4444'; 
-    } else if (!isArray && res.res_type === 'system_blocked') { 
-      bgColor = '#f8fafc'; textColor = '#cbd5e1'; 
-    } else if (isStart) { 
-      // 複数予約がある場合は少し濃い目の色にしてもOK（ここでは既存を尊重）
-      bgColor = reservationCount > 1 ? '#e0e7ff' : themeColorLight; 
-      textColor = '#1e293b'; 
-      borderColor = themeColor; 
-    } else { 
-      bgColor = '#fdfdfd'; textColor = '#cbd5e1'; 
-    }
-  }
-
-  return (
-    <td 
-      key={`${dStr}-${time}`} 
-onClick={() => { 
-  setSelectedDate(dStr); 
-  setTargetTime(time); 
-  
-  // 1. 予約がある場合（配列）
-  if (isArray) {
-    if (reservationCount > 1) {
-      setSelectedSlotReservations(res);
-      setShowSlotListModal(true);
-    } else {
-      openDetail(res[0]);
-    }
-  } 
-  // 2. 管理者ブロック枠（予定・休みなど）のうち、「手動入力したもの」だけを判定
-  // 💡 ポイント：!res.isRegularHoliday を追加して、システムの定休日をここから除外します
-  else if (res && res.res_type === 'blocked' && !res.isRegularHoliday) {
-    openDetail(res);
-  } 
-  // 3. それ以外（空き枠、システム上の定休日、インターバルなど）
-  else {
-    // 💡 これで、定休日をタップしたときも「管理メニュー」が開くようになります！
-    setShowMenuModal(true); 
-  } 
-}}
-      style={{ borderRight: '1px solid #f1f5f9', borderBottom: '1px solid #f1f5f9', position: 'relative', cursor: 'pointer' }}
-    >
-      {res && (
-        <div style={{ position: 'absolute', inset: '1px', background: bgColor, color: textColor, padding: '4px 8px', borderRadius: '2px', zIndex: 5, overflow: 'hidden', borderLeft: `2px solid ${borderColor}`, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', textAlign: 'center' }}>
+{/* ✅ 親要素：はみ出しを隠し、高さを固定 */}
+        <div style={{ flex: 1, overflow: 'hidden', position: 'relative', display: 'flex', flexDirection: 'column' }}>
           
-          {/* 1. ブロック枠の表示 */}
-          {(!isArray && res.res_type === 'blocked') ? (
-            res.isRegularHoliday ? (isStart ? <span style={{fontSize:'0.6rem', fontWeight:'bold'}}>定休日</span> : '') : 
-            (res.customer_name === '臨時休業' && isStart ? <span style={{fontSize:'0.7rem', fontWeight:'bold'}}>臨時休業</span> : 
-              (isStart ? (res.customer_name === '管理者ブロック' ? '✕' : <div style={{fontWeight:'bold', fontSize:'0.7rem', lineHeight:'1.1', overflow:'hidden'}}>{res.customer_name}</div>) : '✕')
-            )
-          ) : (
-            // 2. システムブロック（インターバル等）
-            (!isArray && res.res_type === 'system_blocked') ? <span style={{fontSize:'0.6rem'}}>{res.customer_name}</span> : 
-            
-            // 3. 通常予約（配列）
-            (isStart ? (
-              <div style={{ 
-                fontWeight: 'bold', 
-                fontSize: isPC ? '0.9rem' : 'calc(0.7rem + 0.2vw)', 
-                lineHeight: '1.1', 
-                height: '100%', 
-                width: '100%', 
-                display: 'flex', 
-                flexDirection: 'column',
-                alignItems: 'center', 
-                justifyContent: 'center', 
-                overflow: 'hidden'
-              }}>
-                {reservationCount > 1 ? (
-                  // ✅ 複数人の場合の表示
-                  <span style={{ fontSize: '1.1rem' }}>👥 {reservationCount}名</span>
-                ) : (
-                  // ✅ 1人の場合の表示
-                  isPC ? `${res[0].customer_name} 様` : getFamilyName(res[0].customer_name)
-                )}
-              </div>
-            ) : isArray ? '・' : '')
-          )}
-        </div>
-      )}
-    </td>
-  );
-})}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+          <AnimatePresence mode="popLayout" initial={false}>
+            <motion.div
+              key={startDate.toISOString()} // 📅 週が切り替わるたびにアニメーション
+              initial={{ opacity: 0, x: 30 }} 
+              animate={{ opacity: 1, x: 0 }} 
+              exit={{ opacity: 0, x: -30 }} 
+              transition={{ duration: 0.25, ease: "easeOut" }}
 
+              // ✅ スワイプ（ドラッグ）設定
+              drag="x" 
+              dragConstraints={{ left: 0, right: 0 }}
+              dragElastic={0.5} 
+              onDragEnd={(e, { offset }) => {
+                const swipeThreshold = 80;
+                if (offset.x > swipeThreshold) goPrev(); // 右スワイプで前週
+                else if (offset.x < -swipeThreshold) goNext(); // 左スワイプで次週
+              }}
+
+              // ✅ スタイル：縦スクロールはここで行う
+              style={{ 
+                flex: 1,
+                width: '100%', 
+                overflowY: 'auto', 
+                overflowX: isPC ? 'auto' : 'hidden',
+                cursor: 'grab',
+                touchAction: 'pan-y' // 縦スクロールを邪魔しない
+              }}
+              whileTap={{ cursor: 'grabbing' }}
+            >
+              <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: isPC ? '900px' : '100%' }}>
+                <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: '#fff' }}>
+                  <tr>
+                    <th style={{ width: isPC ? '80px' : '32px', borderBottom: '1px solid #ddd' }}></th>
+                    {weekDays.map(date => {
+                      const isToday = getJapanDateStr(new Date()) === getJapanDateStr(date);
+                      return (
+                        <th key={date.toString()} style={{ padding: '4px 0', borderBottom: '1px solid #ddd' }}>
+                          <div style={{ fontSize: '0.6rem', color: isToday ? themeColor : '#666' }}>{['日','月','火','水','木','金','土'][date.getDay()]}</div>
+                          <div style={{ fontSize: isPC ? '1.5rem' : '0.9rem', fontWeight: 'bold', color: isToday ? '#fff' : '#333', background: isToday ? themeColor : 'none', width: isPC ? '40px' : '22px', height: isPC ? '40px' : '22px', borderRadius: '50%', margin: '2px auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{date.getDate()}</div>
+                        </th>
+                      );
+                    })}
+                  </tr>
+                </thead>
+                <tbody>
+                  {timeSlots.map(time => (
+                    <tr key={time} style={{ height: '60px' }}>
+                      <td style={{ borderRight: '1px solid #eee', borderBottom: '1px solid #f1f5f9', textAlign: 'center' }}>
+                        <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 'bold' }}>{time}</span>
+                      </td>
+                      {weekDays.map(date => {
+                        const dStr = getJapanDateStr(date);
+                        const res = getStatusAt(dStr, time);
+                        const isArray = Array.isArray(res);
+                        const reservationCount = isArray ? res.length : 0;
+                        const isStart = isArray && res.some(r => 
+                          new Date(r.start_time).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false }) === time
+                        );
+                        const isOtherShop = isArray && res.some(r => r.shop_id !== shopId && r.res_type !== 'system_blocked' && !r.isRegularHoliday);
+
+                        let bgColor = '#fff'; let borderColor = '#f1f5f9'; let textColor = '#cbd5e1';
+                        if (res) {
+                          if (!isArray && res.isRegularHoliday) { bgColor = '#f3f4f6'; textColor = '#94a3b8'; }
+                          else if (isOtherShop) { bgColor = '#f1f5f9'; textColor = '#94a3b8'; borderColor = '#cbd5e1'; }
+                          else if (isArray && res.some(r => r.res_type === 'blocked')) { bgColor = '#fee2e2'; textColor = '#ef4444'; borderColor = '#ef4444'; }
+                          else if (!isArray && res.res_type === 'system_blocked') { bgColor = '#f8fafc'; textColor = '#cbd5e1'; }
+                          else if (isStart) { bgColor = reservationCount > 1 ? '#e0e7ff' : themeColorLight; textColor = '#1e293b'; borderColor = themeColor; }
+                          else { bgColor = '#fdfdfd'; textColor = '#cbd5e1'; }
+                        }
+
+                        return (
+                          <td 
+                            key={`${dStr}-${time}`} 
+                            onClick={() => { 
+                              setSelectedDate(dStr); 
+                              setTargetTime(time); 
+                              if (isArray) {
+                                if (reservationCount > 1) { setSelectedSlotReservations(res); setShowSlotListModal(true); }
+                                else { openDetail(res[0]); }
+                              } else if (res && res.res_type === 'blocked' && !res.isRegularHoliday) {
+                                openDetail(res);
+                              } else {
+                                setShowMenuModal(true); 
+                              } 
+                            }}
+                            style={{ borderRight: '1px solid #f1f5f9', borderBottom: '1px solid #f1f5f9', position: 'relative', cursor: 'pointer' }}
+                          >
+                            {res && (
+                              <div style={{ position: 'absolute', inset: '1px', background: bgColor, color: textColor, padding: '4px 8px', borderRadius: '2px', zIndex: 5, overflow: 'hidden', borderLeft: `2px solid ${borderColor}`, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', textAlign: 'center' }}>
+                                {(!isArray && res.res_type === 'blocked') ? (
+                                  res.isRegularHoliday ? (isStart ? <span style={{fontSize:'0.6rem', fontWeight:'bold'}}>定休日</span> : '') : 
+                                  (res.customer_name === '臨時休業' && isStart ? <span style={{fontSize:'0.7rem', fontWeight:'bold'}}>臨時休業</span> : 
+                                    (isStart ? (res.customer_name === '管理者ブロック' ? '✕' : <div style={{fontWeight:'bold', fontSize:'0.7rem', lineHeight:'1.1', overflow:'hidden'}}>{res.customer_name}</div>) : '✕')
+                                  )
+                                ) : (
+                                  (!isArray && res.res_type === 'system_blocked') ? <span style={{fontSize:'0.6rem'}}>{res.customer_name}</span> : 
+                                  (isStart ? (
+                                    <div style={{ fontWeight: 'bold', fontSize: isPC ? '0.9rem' : 'calc(0.7rem + 0.2vw)', lineHeight: '1.1', height: '100%', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                                      {reservationCount > 1 ? <span style={{ fontSize: '1.1rem' }}>👥 {reservationCount}名</span> : (isPC ? `${res[0].customer_name} 様` : getFamilyName(res[0].customer_name))}
+                                    </div>
+                                  ) : isArray ? '・' : '')
+                                )}
+                              </div>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </motion.div>
+          </AnimatePresence>
+        </div>
+        
         {!isPC && (
           <div style={{ position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)', display: 'flex', background: '#fff', borderRadius: '50px', boxShadow: '0 8px 30px rgba(0,0,0,0.15)', padding: '5px', zIndex: 100, border: '1px solid #eee' }}>
             <button onClick={goPrev} style={floatNavBtnStyle}>◀</button>

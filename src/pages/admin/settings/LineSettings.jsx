@@ -161,6 +161,34 @@ const LineSettings = () => {
               style={inputStyle} 
               placeholder="20桁程度の英数字を入力"
             />
+
+            {/* 🆕 ここから追加：リッチメニュー用URLの表示とコピー機能 */}
+            {liffId && (
+              <div style={{ marginTop: '20px', padding: '15px', background: '#fff', borderRadius: '12px', border: '2px solid #00b900' }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#00b900', display: 'block', marginBottom: '8px' }}>
+                  💬 LINEリッチメニュー用URL（コピーして使用）
+                </label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input 
+                    readOnly 
+                    value={`https://liff.line.me/${liffId}`} 
+                    style={{ ...inputStyle, background: '#f8fafc', fontSize: '0.8rem', flex: 1, border: '1px solid #cbd5e1' }} 
+                  />
+                  <button 
+                    onClick={() => {
+                      navigator.clipboard.writeText(`https://liff.line.me/${liffId}`);
+                      showMsg("URLをコピーしました！"); // 既存のshowMsg関数を利用
+                    }}
+                    style={{ padding: '0 15px', background: '#00b900', color: '#fff', border: 'none', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 'bold', cursor: 'pointer' }}
+                  >
+                    コピー
+                  </button>
+                </div>
+                <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '10px', lineHeight: '1.4' }}>
+                  ※このURLをLINE Developersのリッチメニュー「リンク」欄に設定してください。
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </section>

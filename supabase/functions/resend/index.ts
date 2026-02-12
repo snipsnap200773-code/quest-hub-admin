@@ -72,7 +72,7 @@ Deno.serve(async (req) => {
       tomorrowJST.setDate(tomorrowJST.getDate() + 1);
       const dateStr = tomorrowJST.toISOString().split('T')[0];
 
-      const { data: resList, error: resError } = await supabaseAdmin
+const { data: resList, error: resError } = await supabaseAdmin
         .from('reservations')
         .select('*, profiles(*), staffs(name)')
         .gte('start_time', `${dateStr}T00:00:00.000Z`)
@@ -81,10 +81,16 @@ Deno.serve(async (req) => {
         .eq('res_type', 'normal');
 
       if (resError) throw resError;
+
+      // 🆕 ここからログ追加！
+      console.log(`[REMIND_DEBUG] 検索対象日(JST): ${dateStr}`);
+      console.log(`[REMIND_DEBUG] 取得件数: ${resList?.length || 0}件`);
+
       if (!resList || resList.length === 0) {
+        console.log("[REMIND_DEBUG] 送信対象がないため終了します"); // 🆕 これも追加
         return new Response(JSON.stringify({ message: 'リマインド対象なし' }), { headers: corsHeaders });
       }
-
+      
       const report = [];
       for (const res of resList) {
         const shop = res.profiles;

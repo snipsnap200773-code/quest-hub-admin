@@ -249,8 +249,13 @@ function ShopDetail() {
             <Mail size={24} color="#fff" />メール予約
           </Link>
 
-          {shop.line_official_url ? (
-            <a href={shop.line_official_url} target="_blank" rel="noreferrer" style={{ ...actionButtonStyle, background: '#06c755', color: '#fff' }}>
+          {(shop.liff_id || shop.line_official_url) ? (
+            <a 
+              href={shop.liff_id ? `https://liff.line.me/${shop.liff_id}` : shop.line_official_url} 
+              target="_blank" 
+              rel="noreferrer" 
+              style={{ ...actionButtonStyle, background: '#06c755', color: '#fff' }}
+            >
               <MessageCircle size={24} color="#fff" />LINE予約
             </a>
           ) : (
