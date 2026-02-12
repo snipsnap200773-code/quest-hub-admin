@@ -51,16 +51,17 @@ function ReservationForm() {
   useEffect(() => {
     // 🆕 ページ表示時に強制的に最上部へ
     window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-
     fetchData();
-    if (isLineSource || isLineApp) {
-      initLiff();
-    }
+    // 💡 ここでの initLiff() 呼び出しは削除します
   }, [shopId]);
   
-  const initLiff = async () => {
+  const initLiff = async (dynamicLiffId) => {
     try {
-      await liff.init({ liffId: '2008606267-eJadD70Z' }); 
+      if (!dynamicLiffId) {
+        console.warn('LIFF IDが設定されていません');
+        return;
+      }
+      await liff.init({ liffId: dynamicLiffId }); 
       if (liff.isLoggedIn()) {
         const profile = await liff.getProfile();
         setLineUser(profile);
@@ -78,6 +79,11 @@ function ReservationForm() {
     
     if (shopRes.data) {
       setShop(shopRes.data);
+
+      // ✅ 🆕 データベースから取得した liff_id を使って初期化を開始
+      if (shopRes.data.liff_id && (isLineSource || isLineApp)) {
+        initLiff(shopRes.data.liff_id);
+      }
       
       // ✅ 1. まずは初期値として本来の店名と説明文をセット
       setDisplayBranding({ 
