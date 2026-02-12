@@ -779,14 +779,14 @@ const insertData = {
     <div style={{ 
       writingMode: 'vertical-rl', 
       textOrientation: 'upright', 
-      fontSize: '0.75rem', 
+      fontSize: '0.85rem', 
       fontWeight: 'bold', 
       lineHeight: '1',
       maxHeight: '55px', // セルの高さに合わせて調整
       overflow: 'hidden'
     }}>
-      {res[0].customer_name}
-    </div>
+      {getFamilyName(res[0].customer_name)} {/* ✅ ここで名字だけにカット！ */}
+</div>
   )
 )}
                                     </div>
