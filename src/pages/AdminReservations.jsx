@@ -545,7 +545,7 @@ const insertData = {
               <h1 style={{ fontSize: '1.1rem', fontWeight: '900', margin: 0, color: '#1e293b' }}>SnipSnap Admin</h1>
             </div>
             <button 
-              onClick={() => navigate(`/admin/${shopId}/settings/general`)} 
+              onClick={() => navigate(`/admin/${shopId}/dashboard`)} 
               style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer', fontSize: '1.1rem', padding: '6px', display: 'flex', alignItems: 'center', color: '#64748b' }}
             >
               ⚙️
