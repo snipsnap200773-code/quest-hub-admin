@@ -701,7 +701,6 @@ const insertData = {
                 <tbody>
                   {timeSlots.map(time => (
                     <tr key={time} style={{ height: '60px' }}>
-                       /* 縦線と下線を2pxの濃いグレーに */
                        <td style={{ borderRight: '2px solid #cbd5e1', borderBottom: '2px solid #cbd5e1', textAlign: 'center' }}>
                     <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 'bold' }}>{time}</span>
                       </td>
