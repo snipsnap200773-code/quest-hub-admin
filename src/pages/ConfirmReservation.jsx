@@ -90,14 +90,20 @@ const isAdminEntry = !!adminDate;
   
   // 🆕 LINE連携チェック ＋ 店舗データ取得を一元化
   useEffect(() => {
-    // 1. LINEユーザー情報から顧客を特定する関数
+// 1. LINEユーザー情報から顧客を特定する関数
     const checkLineCustomer = async () => {
       if (!lineUser?.userId) {
-        // LINEアプリ内からのアクセスで名前だけある場合
+        // LINEアプリ内からのアクセス（未連携）で名前だけある場合
         if (lineUser?.displayName) {
+          console.log("👤 LINE表示名をセット:", lineUser.displayName);
           setCustomerData(prev => ({ ...prev, name: lineUser.displayName }));
         }
         return;
+      }
+
+      // LINE連携済みの場合、まずLINEの表示名を「仮」でセットしておく（即時反映のため）
+      if (lineUser.displayName) {
+        setCustomerData(prev => ({ ...prev, name: lineUser.displayName }));
       }
 
       const { data: cust, error } = await supabase
@@ -108,10 +114,11 @@ const isAdminEntry = !!adminDate;
         .maybeSingle();
 
       if (cust) {
-        // ✅ 関数型アップデートを使って、最新のStateをベースに更新する
+        console.log("✅ 過去の顧客データを反映:", cust.name);
+        // 過去データがある場合は、LINE名よりもDBの登録名を優先して上書き
         setCustomerData(prev => ({
           ...prev,
-          name: cust.name || '',
+          name: cust.name || lineUser.displayName || '',
           phone: cust.phone || '',
           email: cust.email || '',
           address: cust.address || ''
@@ -119,7 +126,7 @@ const isAdminEntry = !!adminDate;
         setSelectedCustomerId(cust.id);
       }
     };
-
+    
     // 2. 実行エリア
     checkLineCustomer();
     fetchShop();      // 🆕 これを呼ぶことで「読み込み中」が解除されます！
@@ -434,7 +441,7 @@ const isAdminEntry = !!adminDate;
           // 店主がその入り口に対して「表示」をオフにしている、または管理者ねじ込みかつ名前以外の場合はスキップ
           if (!isEnabled) return null;
           if (isAdminEntry && key !== 'name') return null;
-          
+
           return (
             <div key={key} style={{ position: 'relative' }}>
               <label style={{ fontSize: '0.8rem', fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>
