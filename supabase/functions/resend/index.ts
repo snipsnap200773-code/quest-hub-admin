@@ -282,35 +282,57 @@ finalHtml = `<div lang="ja" style="font-family: sans-serif; color: #333; line-he
       });
     };
 
+// 🆕 1. 予約の入り口を判定 (payloadにLINE IDが含まれているか)
+    const isLineBooking = !!lineUserId;
+
+    // --- 🆕 2. お客様への通知 (仕分け) ---
     let customerResData = null;
-    if (customerEmail) {
-      const customerRes = await sendMail(customerEmail, false);
-      customerResData = await customerRes.json();
-    }
-    let shopResData = null;
-    if (shopEmail && shopEmail !== 'admin@example.com') {
-      const shopRes = await sendMail(shopEmail, true);
-      shopResData = await shopRes.json();
-    }
-
-    // --- LINE通知 (本家ロジック完全維持) ---
     let customerLineSent = false;
+
+    if (isLineBooking) {
+      // ✅ LINE経由：LINE設定がONならLINE、OFFなら何もしない (メールは送らない)
+      if (profile?.customer_line_booking_enabled !== false && currentToken) {
+        const customerMsg = type === 'cancel' 
+          ? `【キャンセル完了】\n${customerName} 様、キャンセル手続きが完了いたしました。`
+          : `${customerName}様\nご予約ありがとうございます。\n\n🏨 店名：${shopName}\n👤 担当：${staffName || '店舗スタッフ'}\n📅 日時：${startTime}〜\n\n📋 内容：\n${services}\n\n■予約確認・キャンセルはこちら\n${cancelUrl}`;
+        customerLineSent = await safePushToLine(lineUserId, customerMsg, currentToken, "CUSTOMER");
+      }
+    } else {
+      // ✅ Web経由：メールアドレスがあればメールを送る (LINE IDを記憶していてもLINEは送らない)
+      if (customerEmail) {
+        const customerRes = await sendMail(customerEmail, false);
+        customerResData = await customerRes.json();
+      }
+    }
+
+    // --- 🆕 3. 店主様への通知 (LINEバックアップ) ---
+    let shopResData = null;
     let shopLineSent = false;
-    if (lineUserId && currentToken) {
-      const customerMsg = type === 'cancel' 
-        ? `【キャンセル完了】\n${customerName} 様、キャンセル手続きが完了いたしました。`
-        : `${customerName}様\nご予約ありがとうございます。\n担当: ${staffName}\n日時: ${startTime}〜\n\n■キャンセル・変更について\n${cancelUrl}`;
-      customerLineSent = await safePushToLine(lineUserId, customerMsg, currentToken, "CUSTOMER");
-    }
+
     if (notifyLineEnabled !== false && currentToken && currentAdminId) {
+      // ✅ LINE通知がONなら：LINEで送る
       const shopMsg = type === 'cancel'
-        ? `【予約キャンセル通知】\n👤 客: ${customerName}\n📅 日: ${startTime}〜`
-        : `【新着予約】\n👤 客: ${customerName}\n📅 日: ${startTime}〜\n📋 メ: ${services}`;
+        ? `【予約キャンセル通知】\n👤 客: ${customerName} 様\n📅 日: ${startTime}〜`
+        : `【新着予約】\n👤 客: ${customerName} 様\n📅 日: ${startTime}〜\n📋 メ: ${services}\n👤 担: ${staffName || '指名なし'}`;
       shopLineSent = await safePushToLine(currentAdminId, shopMsg, currentToken, "SHOP_OWNER");
+    } else {
+      // ✅ LINE通知がOFFなら：店舗メールアドレスへバックアップ送信
+      if (shopEmail && shopEmail !== 'admin@example.com') {
+        const shopRes = await sendMail(shopEmail, true);
+        shopResData = await shopRes.json();
+      }
     }
 
-    return new Response(JSON.stringify({ success: true, customerEmail: customerResData, shopEmail: shopResData }), { status: 200, headers: corsHeaders });
-
+    // 全ての送信結果をレスポンス
+    return new Response(JSON.stringify({ 
+      success: true, 
+      isLineBooking,
+      customerEmail: customerResData, 
+      customerLine: customerLineSent,
+      shopEmail: shopResData,
+      shopLine: shopLineSent 
+    }), { status: 200, headers: corsHeaders });
+    
   } catch (error) {
     console.error("Error:", error.message);
     return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: corsHeaders });

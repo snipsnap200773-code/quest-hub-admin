@@ -19,10 +19,15 @@ const LineSettings = () => {
   }, []);
   const isPC = windowWidth > 900; 
   
-  // --- 1. State 管理 (本家から完全移植) ---
+// --- 1. State 管理 (LINE通知の役割を細分化) ---
   const [message, setMessage] = useState('');
+  // ① 店主様への通知（新着予約など）
   const [notifyLineEnabled, setNotifyLineEnabled] = useState(true);
-  const [notifyLineRemindEnabled, setNotifyLineRemindEnabled] = useState(false);
+  // ② お客様への自動通知（予約完了時）
+  const [customerLineBookingEnabled, setCustomerLineBookingEnabled] = useState(true);
+  // ③ お客様へのリマインド通知（24時間前）
+  const [customerLineRemindEnabled, setCustomerLineRemindEnabled] = useState(false);
+  
   const [lineToken, setLineToken] = useState('');
   const [lineAdminId, setLineAdminId] = useState('');
   const [liffId, setLiffId] = useState('');
@@ -35,7 +40,9 @@ const LineSettings = () => {
     const { data } = await supabase.from('profiles').select('*').eq('id', shopId).single();
     if (data) {
       setNotifyLineEnabled(data.notify_line_enabled ?? true);
-      setNotifyLineRemindEnabled(data.notify_line_remind_enabled ?? false);
+      // DBのカラム名に合わせてセット
+      setCustomerLineBookingEnabled(data.customer_line_booking_enabled ?? true);
+      setCustomerLineRemindEnabled(data.customer_line_remind_enabled ?? false);
       setLineToken(data.line_channel_access_token || '');
       setLineAdminId(data.line_admin_user_id || '');
       setLiffId(data.liff_id || '');
@@ -47,7 +54,8 @@ const LineSettings = () => {
   const handleSave = async () => {
     const { error } = await supabase.from('profiles').update({
       notify_line_enabled: notifyLineEnabled,
-      notify_line_remind_enabled: notifyLineRemindEnabled,
+      customer_line_booking_enabled: customerLineBookingEnabled,
+      customer_line_remind_enabled: customerLineRemindEnabled,
       line_channel_access_token: lineToken,
       line_admin_user_id: lineAdminId,
       liff_id: liffId
@@ -55,7 +63,7 @@ const LineSettings = () => {
 
     if (!error) showMsg('LINE連携設定を保存しました！');
     else alert('保存に失敗しました。');
-};
+  };
 
   // 🆕 ここに追加！
   const handleTestNotify = async () => {
@@ -125,35 +133,54 @@ const LineSettings = () => {
       <section style={cardStyle}>
         <div style={{ padding: '20px', background: '#f0fdf4', borderRadius: '16px' }}>
           
-          {/* 通知の有効化 */}
-          <label style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px', cursor: 'pointer' }}>
-            <input 
-              type="checkbox" 
-              checked={notifyLineEnabled} 
-              onChange={(e) => setNotifyLineEnabled(e.target.checked)} 
-              style={{ width: '22px', height: '22px', cursor: 'pointer' }} 
-            />
-            <span style={{ fontWeight: 'bold', fontSize: '0.95rem', color: '#1e293b' }}>📢 新着予約のLINE通知を有効にする</span>
-          </label>
+{/* 1. 店主様向け設定 */}
+          <div style={{ marginBottom: '24px', borderBottom: '1px solid #d1fae5', paddingBottom: '16px' }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#059669', marginBottom: '12px' }}>▼ 店主様への通知</div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }}>
+              <input 
+                type="checkbox" 
+                checked={notifyLineEnabled} 
+                onChange={(e) => setNotifyLineEnabled(e.target.checked)} 
+                style={{ width: '20px', height: '20px', cursor: 'pointer' }} 
+              />
+              <span style={{ fontWeight: 'bold', fontSize: '0.9rem', color: '#1e293b' }}>新着予約・キャンセルの通知を受け取る</span>
+            </label>
+          </div>
 
-          {/* リマインド通知 (有料版機能) */}
-          <label style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px', padding: '16px', background: '#fff', borderRadius: '12px', border: '2px dashed #00b900', cursor: 'pointer' }}>
-            <input 
-              type="checkbox" 
-              checked={notifyLineRemindEnabled} 
-              onChange={(e) => setNotifyLineRemindEnabled(e.target.checked)} 
-              style={{ width: '22px', height: '22px', cursor: 'pointer' }} 
-            />
-            <div>
-              <span style={{ fontWeight: 'bold', fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '6px', color: '#059669' }}>
-                <Clock size={18} /> リマインドLINEを自動送信
-              </span>
-              <span style={{ fontSize: '0.75rem', color: '#64748b', display: 'block', marginTop: '4px' }}>
-                ※予約の24時間前にお客様へ自動送信します（有料版）
-              </span>
-            </div>
-          </label>
+          {/* 2. お客様向け設定 */}
+          <div style={{ marginBottom: '24px' }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#059669', marginBottom: '12px' }}>▼ お客様への自動送信（LINE予約時のみ）</div>
+            
+            {/* 完了通知 */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', cursor: 'pointer' }}>
+              <input 
+                type="checkbox" 
+                checked={customerLineBookingEnabled} 
+                onChange={(e) => setCustomerLineBookingEnabled(e.target.checked)} 
+                style={{ width: '20px', height: '20px', cursor: 'pointer' }} 
+              />
+              <span style={{ fontSize: '0.9rem', color: '#1e293b' }}>予約完了・キャンセル時にLINEを送る</span>
+            </label>
 
+            {/* リマインド */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', background: '#fff', borderRadius: '12px', border: '1px solid #00b900', cursor: 'pointer' }}>
+              <input 
+                type="checkbox" 
+                checked={customerLineRemindEnabled} 
+                onChange={(e) => setCustomerLineRemindEnabled(e.target.checked)} 
+                style={{ width: '20px', height: '20px', cursor: 'pointer' }} 
+              />
+              <div>
+                <span style={{ fontWeight: 'bold', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '6px', color: '#059669' }}>
+                  <Clock size={16} /> 前日のリマインドLINEを送る
+                </span>
+                <span style={{ fontSize: '0.7rem', color: '#64748b', display: 'block' }}>
+                  ※予約の24時間前に自動送信します
+                </span>
+              </div>
+            </label>
+          </div>
+          
           {/* 各種キー入力 */}
           <div style={{ borderTop: '1px solid #d1fae5', paddingTop: '10px' }}>
             <label style={labelStyle}><ShieldCheck size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> Messaging API Access Token</label>

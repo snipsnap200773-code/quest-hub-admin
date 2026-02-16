@@ -19,10 +19,13 @@ const EmailSettings = () => {
 
   const isPC = windowWidth > 900; 
   const [message, setMessage] = useState('');
-  const [shopData, setShopData] = useState(null);
+const [shopData, setShopData] = useState(null);
+  // 🆕 店主様へのメール通知自体をON/OFFするStateを追加
+  const [notifyMailEnabled, setNotifyMailEnabled] = useState(true);
 
   const [templates, setTemplates] = useState({
     customer_booking: { sub: '', body: '' },
+    // 🆕 enabled は Web予約のお客様へのリマインド用
     customer_remind: { sub: '', body: '', enabled: true },
     customer_cancel: { sub: '', body: '' },
     shop_booking: { sub: '', body: '' },
@@ -37,6 +40,7 @@ const EmailSettings = () => {
     const { data } = await supabase.from('profiles').select('*').eq('id', shopId).single();
     if (data) {
       setShopData(data);
+      setNotifyMailEnabled(data.notify_mail_enabled ?? true); // 🆕 追加
       setTemplates({
         customer_booking: { sub: data.mail_sub_customer_booking || '', body: data.mail_body_customer_booking || '' },
         customer_remind: { sub: data.mail_sub_customer_remind || '', body: data.mail_body_customer_remind || '', enabled: data.notify_mail_remind_enabled ?? true },
@@ -50,6 +54,7 @@ const EmailSettings = () => {
 
   const handleSave = async () => {
     const { error } = await supabase.from('profiles').update({
+      notify_mail_enabled: notifyMailEnabled, // 🆕 追加
       mail_sub_customer_booking: templates.customer_booking.sub,
       mail_body_customer_booking: templates.customer_booking.body,
       mail_sub_customer_remind: templates.customer_remind.sub,
@@ -150,13 +155,28 @@ const EmailSettings = () => {
         <div style={boxStyle}>
           <section style={{ background: '#fff', padding: isPC ? '24px' : '16px', borderRadius: '24px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', ...boxStyle }}>
             
+{/* 🆕 お客様向けリマインド設定（Web予約者などが対象） */}
             {activeTab === 'customer_remind' && (
-              <label style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px', padding: '12px', background: '#f8fafc', borderRadius: '12px', cursor: 'pointer' }}>
-                <input type="checkbox" checked={templates.customer_remind.enabled} onChange={e => setTemplates({...templates, customer_remind: {...templates.customer_remind, enabled: e.target.checked}})} style={{ width: '20px', height: '20px' }} />
-                <span style={{ fontWeight: 'bold', color: '#1e293b', fontSize: '0.9rem' }}>リマインドメールを自動送信する</span>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px', padding: '15px', background: '#f0f9ff', borderRadius: '16px', border: '1px solid #bae6fd', cursor: 'pointer' }}>
+                <input type="checkbox" checked={templates.customer_remind.enabled} onChange={e => setTemplates({...templates, customer_remind: {...templates.customer_remind, enabled: e.target.checked}})} style={{ width: '22px', height: '22px' }} />
+                <div>
+                  <span style={{ fontWeight: 'bold', color: '#0369a1', fontSize: '0.9rem' }}>リマインドメールを自動送信する (Web予約者など)</span>
+                  <span style={{ display: 'block', fontSize: '0.75rem', color: '#0369a1', opacity: 0.8 }}>予約の24時間前に自動送信します。</span>
+                </div>
               </label>
             )}
 
+            {/* 🆕 店主様向け通知設定（Web/LINE共通のメール通知を止めるか選べる） */}
+            {activeTab === 'shop_booking' && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px', padding: '15px', background: '#fff7ed', borderRadius: '16px', border: '1px solid #ffedd5', cursor: 'pointer' }}>
+                <input type="checkbox" checked={notifyMailEnabled} onChange={e => setNotifyMailEnabled(e.target.checked)} style={{ width: '22px', height: '22px' }} />
+                <div>
+                  <span style={{ fontWeight: 'bold', color: '#9a3412', fontSize: '0.9rem' }}>新着予約のメール通知を受け取る</span>
+                  <span style={{ display: 'block', fontSize: '0.75rem', color: '#9a3412', opacity: 0.8 }}>店舗用メールアドレス宛に通知を送信します。</span>
+                </div>
+              </label>
+            )}
+            
             <div style={{ marginBottom: '20px' }}>
               <label style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '8px' }}>件名</label>
               <input value={templates[activeTab].sub} onChange={e => setTemplates({...templates, [activeTab]: {...templates[activeTab], sub: e.target.value}})} style={{ width: '100%', padding: '14px', borderRadius: '12px', border: '1px solid #cbd5e1', fontSize: '1rem', boxSizing: 'border-box' }} placeholder="例: ご予約ありがとうございます" />
