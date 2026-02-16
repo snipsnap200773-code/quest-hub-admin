@@ -27,6 +27,7 @@ import LineSettings from './pages/admin/settings/LineSettings';
 import GeneralSettings from './pages/admin/settings/GeneralSettings';
 import EmailSettings from './pages/admin/settings/EmailSettings';
 import StaffSettings from './pages/admin/settings/StaffSettings';
+import FormCustomizer from './pages/admin/settings/FormCustomizer';
 
 // ✨ 案内人（ガイド）
 import BasicSettingsGuide from './pages/admin/settings/BasicSettingsGuide';
@@ -76,6 +77,7 @@ function App() {
         <Route path="/admin/:shopId/settings/email" element={<EmailSettings />} />
         <Route path="/admin/:shopId/settings/line" element={<LineSettings />} />
         <Route path="/admin/:shopId/settings/general" element={<GeneralSettings />} />
+        <Route path="/admin/:shopId/settings/form" element={<FormCustomizer />} />
 
         {/* 召喚された案内人（ガイド）用 */}
         <Route path="/admin/:shopId/settings/basic-guide" element={<BasicSettingsGuide />} />

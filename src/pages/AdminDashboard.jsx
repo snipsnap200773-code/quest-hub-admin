@@ -4,7 +4,8 @@ import { supabase } from "../supabaseClient";
 import { 
   Settings, Menu as MenuIcon, Clock, ClipboardList, 
   ExternalLink, MessageCircle, MapPin, Sparkles, Mail,
-  Users
+  Users,
+  Layout
 } from 'lucide-react';
 
 const AdminDashboard = () => {
@@ -147,6 +148,17 @@ const AdminDashboard = () => {
           title="店舗情報" desc="店名、住所、サブタイトルなどの基本設定" icon={<MapPin size={28} />} color="#3b82f6"
           to={`/admin/${shopId}/settings/basic`}
           cardStyle={cardStyle} iconBoxStyle={iconBoxStyle} 
+        />
+
+        {/* 🆕 予約フォーム設定（ここを追加） */}
+        <NavCard 
+          title="予約フォーム設定" 
+          desc="業種に合わせた入力項目のカスタマイズ" 
+          icon={<Layout size={28} />} 
+          color="#f97316"
+          to={`/admin/${shopId}/settings/form`}
+          cardStyle={cardStyle} 
+          iconBoxStyle={iconBoxStyle} 
         />
 
         {/* メニュー管理 */}
