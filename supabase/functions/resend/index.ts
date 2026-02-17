@@ -119,43 +119,74 @@ const { data: resList, error: resError } = await supabaseAdmin
           ? res.options.people.map((p: any, i: number) => `${i + 1}人目: ${p.services.map((s: any) => s.name).join(', ')}`).join('\n')
           : (res.options?.people?.[0]?.services?.map((s: any) => s.name).join(', ') || res.customer_name);
 
-        const placeholderData = { customerName: res.customer_name, shopName: shop.business_name, startTime: `${dateStr.replace(/-/g, '/')} ${resTime}〜`, services: menuDisplayText, cancelUrl: '', officialUrl: shop.custom_official_url };
+for (const res of resList) {
+        const shop = res.profiles;
+        const info = res.options?.visit_info || {}; // 🆕 予約時の詳細情報を取得
+        const resTime = new Date(res.start_time).toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' });
+        
+        // 🆕 プレースホルダーデータを業種別項目に対応させる
+        const placeholderData = { 
+          customerName: res.customer_name, 
+          furigana: info.furigana || "",
+          shopName: shop.business_name, 
+          startTime: `${dateStr.replace(/-/g, '/')} ${resTime}〜`, 
+          services: menuDisplayText, 
+          address: info.address || shop.address || "",
+          parking: info.parking || "",
+          companyName: info.companyName || "",
+          symptoms: info.symptoms || "",
+          requestDetails: info.requestDetails || "",
+          notes: info.notes || "",
+          cancelUrl: '', 
+          officialUrl: shop.custom_official_url 
+        };
 
-        // 💡 パターン(3): お客様宛リマインドの文章決定
-        let subject = applyPlaceholders(shop.mail_sub_customer_remind || `【リマインド】明日のお越しをお待ちしております（${shop.business_name}）`, placeholderData);
-        let html = "";
-
-        if (shop.mail_sub_customer_remind && shop.mail_body_customer_remind) {
-          const body = applyPlaceholders(shop.mail_body_customer_remind, placeholderData).replace(/\n/g, '<br>');
-          html = `<div style="font-family: sans-serif; color: #333; line-height: 1.6;">${body}</div>`;
-        } else {
-          // 本家標準リマインドカード
-          html = `
-            <div style="font-family: sans-serif; color: #333; line-height: 1.6; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; padding: 25px; border-radius: 12px;">
-              <h2 style="color: #2563eb;">明日、ご来店をお待ちしております</h2>
-              <p>${res.customer_name} 様</p>
-              <p>いつもご利用ありがとうございます。ご予約日の前日となりましたので、念のためご確認のご連絡です。</p>
-              <div style="background: #f8fafc; padding: 20px; border-radius: 10px; border: 1px solid #e2e8f0; margin: 20px 0;">
-                <p style="margin: 5px 0;">📅 <strong>日時:</strong> ${dateStr.replace(/-/g, '/')} ${resTime}〜</p>
-                <p style="margin: 5px 0;">📋 <strong>内容:</strong><br>${menuDisplayHtml}</p>
-                <p style="margin: 5px 0;">📍 <strong>場所:</strong> ${shop.address || '店舗までお越しください'}</p>
-              </div>
-              <p style="font-size: 0.85rem; color: #64748b;">※キャンセルの場合は、予約確定時にお送りしたメールのリンク、または店舗へお電話にてご連絡ください。</p>
-            </div>`;
-        }
-
-        const mailRes = await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_API_KEY}` },
-          body: JSON.stringify({ from: `${shop.business_name} <infec@snipsnap.biz>`, to: [res.customer_email], subject, html })
-        });
-
+        let mailOk = false;
         let lineOk = false;
-        if (shop.notify_line_remind_enabled && shop.line_channel_access_token && res.line_user_id) {
-          const lineText = `【リマインド】\n明日 ${resTime} よりご予約を承っております。\n\nお名前：${res.customer_name} 様\n店舗：${shop.business_name}\n\n📋 内容：\n${menuDisplayText}\n\nお気をつけてお越しくださいませ！`;
-          lineOk = await safePushToLine(res.line_user_id, lineText, shop.line_channel_access_token, "REMIND");
+
+        // 🆕 三土手さん設計：入り口（LINE IDの有無）による完全仕分け
+        if (res.line_user_id) {
+          // ✅ LINE経由：LINE設定がONならLINE送信（メールは送らない）
+          if (shop.customer_line_remind_enabled !== false && shop.line_channel_access_token) {
+            const lineText = `【${shop.business_name}】\n明日 ${resTime} よりご予約をお待ちしております。\n\n👤 お名前：${res.customer_name} 様\n📋 内容：\n${menuDisplayText}\n\nお気をつけてお越しください！`;
+            lineOk = await safePushToLine(res.line_user_id, lineText, shop.line_channel_access_token, "REMIND_LINE");
+          }
+        } else {
+          // ✅ Web経由：店主がメールリマインドを許可していればメール送信
+          if (shop.notify_mail_remind_enabled !== false && res.customer_email) {
+            let subject = applyPlaceholders(shop.mail_sub_customer_remind || `【リマインド】明日のお越しをお待ちしております（${shop.business_name}）`, placeholderData);
+            let html = "";
+
+            if (shop.mail_sub_customer_remind && shop.mail_body_customer_remind) {
+              const body = applyPlaceholders(shop.mail_body_customer_remind, placeholderData).replace(/\n/g, '<br>');
+              html = `<div style="font-family: sans-serif; color: #333; line-height: 1.6;">${body}</div>`;
+            } else {
+              // 標準リマインドカード（住所なども反映）
+              html = `
+                <div style="font-family: sans-serif; color: #333; line-height: 1.6; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; padding: 25px; border-radius: 12px;">
+                  <h2 style="color: #2563eb;">明日、ご来店をお待ちしております</h2>
+                  <p>${res.customer_name} 様</p>
+                  <div style="background: #f8fafc; padding: 20px; border-radius: 10px; border: 1px solid #e2e8f0; margin: 20px 0;">
+                    <p style="margin: 5px 0;">📅 <strong>日時:</strong> ${dateStr.replace(/-/g, '/')} ${resTime}〜</p>
+                    <p style="margin: 5px 0;">📋 <strong>内容:</strong><br>${menuDisplayText}</p>
+                    <p style="margin: 5px 0;">📍 <strong>場所:</strong> ${info.address || shop.address || '店舗'}</p>
+                  </div>
+                </div>`;
+            }
+
+            const mailRes = await fetch('https://api.resend.com/emails', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_API_KEY}` },
+              body: JSON.stringify({ from: `${shop.business_name} <infec@snipsnap.biz>`, to: [res.customer_email], subject, html })
+            });
+            mailOk = mailRes.ok;
+          }
         }
 
+        await supabaseAdmin.from('reservations').update({ remind_sent: true }).eq('id', res.id);
+        report.push({ id: res.id, email: mailOk, line: lineOk });
+      }
+      
         await supabaseAdmin.from('reservations').update({ remind_sent: true }).eq('id', res.id);
         report.push({ id: res.id, email: mailRes.ok, line: lineOk });
       }
