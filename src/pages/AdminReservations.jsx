@@ -84,8 +84,11 @@ const resIndexStyle = (color) => ({
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [customerFullHistory, setCustomerFullHistory] = useState([]);
-  const [editFields, setEditFields] = useState({ name: '', phone: '', email: '', memo: '', line_user_id: null });
-
+const [editFields, setEditFields] = useState({ 
+    name: '', furigana: '', phone: '', email: '', 
+    address: '', parking: '', symptoms: '', request_details: '', 
+    memo: '', line_user_id: null 
+  });
   // キーボード選択用のIndex管理
   const [selectedIndex, setSelectedIndex] = useState(-1);
 
@@ -95,7 +98,17 @@ const resIndexStyle = (color) => ({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const isPC = windowWidth > 1024;
+const isPC = windowWidth > 1024;
+
+  // 🆕 項目が有効（WebまたはLINEのいずれか）か判定し、ラベルを取得するヘルパー
+  const getFieldConfig = (key) => {
+    const cfg = shop?.form_config?.[key];
+    if (!cfg) return { show: false, label: '' };
+    return {
+      show: cfg.enabled || cfg.line_enabled,
+      label: cfg.label
+    };
+  };
 
   useEffect(() => { fetchData(); }, [shopId, startDate]);
 
@@ -198,12 +211,20 @@ const resIndexStyle = (color) => ({
       cust = data;
     }
 
+// 🆕 予約データに紐づく詳細情報を取得
+    const visitInfo = res.options?.visit_info || {};
+
     if (cust) {
       setSelectedCustomer(cust);
       setEditFields({ 
         name: cust.name, 
+        furigana: cust.furigana || visitInfo.furigana || '', // 🆕 追加
         phone: cust.phone || '', 
         email: cust.email || '', 
+        address: cust.address || visitInfo.address || '', // 🆕 追加
+        parking: cust.parking || visitInfo.parking || '', // 🆕 追加
+        symptoms: cust.symptoms || visitInfo.symptoms || '', // 🆕 追加
+        request_details: cust.request_details || visitInfo.request_details || '', // 🆕 追加
         memo: cust.memo || '',
         line_user_id: cust.line_user_id || res.line_user_id || null
       });
@@ -211,13 +232,18 @@ const resIndexStyle = (color) => ({
       setSelectedCustomer(null);
       setEditFields({ 
         name: res.customer_name, 
+        furigana: visitInfo.furigana || '', // 🆕 追加
         phone: res.customer_phone || '', 
         email: res.customer_email || '', 
+        address: visitInfo.address || '', // 🆕 追加
+        parking: visitInfo.parking || '', // 🆕 追加
+        symptoms: visitInfo.symptoms || '', // 🆕 追加
+        request_details: visitInfo.request_details || '', // 🆕 追加
         memo: '',
         line_user_id: res.line_user_id || null
       });
     }
-    const history = reservations.filter(r => r.shop_id === shopId && r.res_type === 'normal' && r.id !== res.id && (r.customer_name === res.customer_name) && new Date(r.start_time) < new Date(res.start_time)).sort((a, b) => new Date(b.start_time) - new Date(a.start_time)).slice(0, 5);
+        const history = reservations.filter(r => r.shop_id === shopId && r.res_type === 'normal' && r.id !== res.id && (r.customer_name === res.customer_name) && new Date(r.start_time) < new Date(res.start_time)).sort((a, b) => new Date(b.start_time) - new Date(a.start_time)).slice(0, 5);
     setCustomerHistory(history);
     setShowDetailModal(true);
   };
@@ -262,11 +288,16 @@ const resIndexStyle = (color) => ({
       }
       // --- 🆕 チェック終了 ---
 
-      const payload = {
+const payload = {
         shop_id: shopId,
         name: editFields.name,
+        furigana: editFields.furigana || null, // 🆕 追加
         phone: editFields.phone || null,
         email: editFields.email || null,
+        address: editFields.address || null, // 🆕 追加
+        parking: editFields.parking || null, // 🆕 追加
+        symptoms: editFields.symptoms || null, // 🆕 追加
+        request_details: editFields.request_details || null, // 🆕 追加
         memo: editFields.memo || null,
         line_user_id: editFields.line_user_id || null,
         updated_at: new Date().toISOString()
@@ -284,7 +315,8 @@ const resIndexStyle = (color) => ({
       let resUpdateQuery = supabase.from('reservations').update({ 
         customer_name: editFields.name,
         customer_phone: editFields.phone,
-        customer_email: editFields.email
+        customer_email: editFields.email,
+        staff_id: selectedRes.staff_id
       }).eq('shop_id', shopId);
 
       if (editFields.line_user_id) {
@@ -978,6 +1010,84 @@ drag="x"
     <label style={labelStyle}>メールアドレス</label>
     <input type="email" value={editFields.email} onChange={(e) => setEditFields({...editFields, email: e.target.value})} style={inputStyle} placeholder="未登録" />
     
+{/* 🆕 動的詳細項目エリア：FormCustomizerの設定に連動 */}
+    <div style={{ marginTop: '15px', borderTop: '1px dashed #e2e8f0', paddingTop: '15px' }}>
+      
+      {/* ふりがな */}
+      {getFieldConfig('furigana').show && (
+        <>
+          <label style={labelStyle}>{getFieldConfig('furigana').label}</label>
+          <input type="text" value={editFields.furigana} onChange={(e) => setEditFields({...editFields, furigana: e.target.value})} style={inputStyle} />
+        </>
+      )}
+
+{/* 訪問先住所 */}
+      {getFieldConfig('address').show && (
+        <>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <label style={labelStyle}>🏠 {getFieldConfig('address').label}</label>
+            {/* 🆕 住所が入力されている場合のみマップへのリンクを表示 */}
+            {editFields.address && (
+              <a 
+                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(editFields.address)}`} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                style={{ 
+                  fontSize: '0.7rem', 
+                  color: themeColor, 
+                  textDecoration: 'underline', 
+                  fontWeight: 'bold',
+                  cursor: 'pointer'
+                }}
+              >
+                🗺️ Googleマップで開く
+              </a>
+            )}
+          </div>
+          <input 
+            type="text" 
+            value={editFields.address} 
+            onChange={(e) => setEditFields({...editFields, address: e.target.value})} 
+            style={inputStyle} 
+            placeholder="住所を入力してください"
+          />
+        </>
+      )}
+      
+      {/* 駐車場 */}
+      {getFieldConfig('parking').show && (
+        <>
+          <label style={labelStyle}>🅿️ {getFieldConfig('parking').label}</label>
+          <input type="text" value={editFields.parking} onChange={(e) => setEditFields({...editFields, parking: e.target.value})} style={inputStyle} />
+        </>
+      )}
+
+      {/* 症状・お悩み */}
+      {getFieldConfig('symptoms').show && (
+        <>
+          <label style={labelStyle}>📋 {getFieldConfig('symptoms').label}</label>
+          <textarea value={editFields.symptoms} onChange={(e) => setEditFields({...editFields, symptoms: e.target.value})} style={{ ...inputStyle, height: '60px' }} />
+        </>
+      )}
+
+      {/* 詳細要望 */}
+      {getFieldConfig('request_details').show && (
+        <>
+          <label style={labelStyle}>✨ {getFieldConfig('request_details').label}</label>
+          <textarea value={editFields.request_details} onChange={(e) => setEditFields({...editFields, request_details: e.target.value})} style={{ ...inputStyle, height: '60px' }} />
+        </>
+      )}
+
+      {/* 会社名・団体名 */}
+      {getFieldConfig('company_name').show && (
+        <>
+          <label style={labelStyle}>🏢 {getFieldConfig('company_name').label}</label>
+          <input type="text" value={editFields.company_name || ''} onChange={(e) => setEditFields({...editFields, company_name: e.target.value})} style={inputStyle} />
+        </>
+      )}
+    </div>
+
+
     <label style={labelStyle}>顧客メモ（または詳細）</label>
     <textarea value={editFields.memo} onChange={(e) => setEditFields({...editFields, memo: e.target.value})} style={{ ...inputStyle, height: '120px' }} placeholder="好み、注意事項、予定の詳細など" />
     

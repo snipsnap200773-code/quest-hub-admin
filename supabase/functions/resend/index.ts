@@ -186,7 +186,7 @@ for (const res of resList) {
         await supabaseAdmin.from('reservations').update({ remind_sent: true }).eq('id', res.id);
         report.push({ id: res.id, email: mailOk, line: lineOk });
       }
-      
+
         await supabaseAdmin.from('reservations').update({ remind_sent: true }).eq('id', res.id);
         report.push({ id: res.id, email: mailRes.ok, line: lineOk });
       }
@@ -287,7 +287,7 @@ for (const res of resList) {
                 
                 <p style="margin-top: 25px; font-size: 0.9rem; color: #64748b;">ご確認のほど、よろしくお願いいたします。</p>
                 <div style="margin-top: 20px; text-align: center;">
-                  <a href="https://snipsnap-reserve.vercel.app/admin/${shopId}/reservations" style="display: inline-block; background: #2563eb; color: #fff; padding: 12px 25px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 0.9rem;">予約台帳で確認する</a>
+                  <a href="https://quest-hub-five.vercel.app/admin/${shopId}/reservations" style="display: inline-block; background: #2563eb; color: #fff; padding: 12px 25px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 0.9rem;">予約台帳で確認する</a>
                 </div>
               </div>`;
           }
