@@ -14,10 +14,17 @@ function applyPlaceholders(template: string, data: any) {
   if (!template) return "";
   return template
     .replace(/{name}/g, data.customerName || "")
+    .replace(/{furigana}/g, data.furigana || "") // 🆕 追加
     .replace(/{shop_name}/g, data.shopName || "")
     .replace(/{start_time}/g, data.startTime || "")
     .replace(/{staff_name}/g, data.staffName || "担当者なし")
     .replace(/{services}/g, data.services || "")
+    .replace(/{address}/g, data.address || "") // 🆕 追加
+    .replace(/{parking}/g, data.parking || "") // 🆕 追加
+    .replace(/{company_name}/g, data.companyName || "") // 🆕 追加
+    .replace(/{symptoms}/g, data.symptoms || "") // 🆕 追加
+    .replace(/{request_details}/g, data.requestDetails || "") // 🆕 追加
+    .replace(/{notes}/g, data.notes || "") // 🆕 追加
     .replace(/{cancel_url}/g, data.cancelUrl || "")
     .replace(/{official_url}/g, data.officialUrl || "");
 }
@@ -42,15 +49,18 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {
-    const payload = await req.json();
+const payload = await req.json();
     const { 
       type, shopId, customerEmail, customerName, shopName, 
       startTime, services, shopEmail, cancelUrl, lineUserId, 
       notifyLineEnabled, owner_email, dashboard_url, reservations_url, 
       reserve_url, password, ownerName, phone: ownerPhone, businessType,
-      staffName
+      staffName,
+      // 🆕 新しく追加された詳細項目を受け取る
+      furigana, address, parking, buildingType, careNotes, 
+      companyName, symptoms, requestDetails, notes
     } = payload;
-    
+
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? "";
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? "";
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
@@ -311,10 +321,20 @@ finalHtml = `<div lang="ja" style="font-family: sans-serif; color: #333; line-he
 
     if (notifyLineEnabled !== false && currentToken && currentAdminId) {
       // ✅ LINE通知がONなら：LINEで送る
+// 🆕 LINE用：詳細情報を動的に組み立てる
+      let detailsText = "";
+      if (furigana) detailsText += `\n（${furigana}）`;
+      if (companyName) detailsText += `\n🏢 社: ${companyName}`;
+      if (address) detailsText += `\n📍 住: ${address}`;
+      if (parking) detailsText += `\n🅿️ 駐: ${parking}`;
+      if (symptoms) detailsText += `\n🏥 状: ${symptoms}`;
+      if (requestDetails) detailsText += `\n📝 望: ${requestDetails}`;
+      if (notes) detailsText += `\n💬 備: ${notes}`;
+
       const shopMsg = type === 'cancel'
         ? `【予約キャンセル通知】\n👤 客: ${customerName} 様\n📅 日: ${startTime}〜`
-        : `【新着予約】\n👤 客: ${customerName} 様\n📅 日: ${startTime}〜\n📋 メ: ${services}\n👤 担: ${staffName || '指名なし'}`;
-      shopLineSent = await safePushToLine(currentAdminId, shopMsg, currentToken, "SHOP_OWNER");
+        : `【新着予約】\n👤 客: ${customerName} 様${detailsText}\n📅 日: ${startTime}〜\n📋 メ: ${services}\n👤 担: ${staffName || '指名なし'}`;
+              shopLineSent = await safePushToLine(currentAdminId, shopMsg, currentToken, "SHOP_OWNER");
     } else {
       // ✅ LINE通知がOFFなら：店舗メールアドレスへバックアップ送信
       if (shopEmail && shopEmail !== 'admin@example.com') {

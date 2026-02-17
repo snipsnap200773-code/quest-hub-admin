@@ -34,8 +34,9 @@ const isAdminEntry = !!adminDate;
 
   // 🆕 一括管理用のStateに変更
   const [customerData, setCustomerData] = useState({
-    name: '', email: '', phone: '', address: '', 
-    parking: '', building_type: '', care_notes: '', notes: ''
+    name: '', furigana: '', email: '', phone: '', address: '', 
+    parking: '', building_type: '', care_notes: '', 
+    company_name: '', symptoms: '', request_details: '', notes: ''
   });
   const [formConfig, setFormConfig] = useState(null); // 🆕 フォーム設定用
 
@@ -119,9 +120,14 @@ const isAdminEntry = !!adminDate;
         setCustomerData(prev => ({
           ...prev,
           name: cust.name || lineUser.displayName || '',
+          furigana: cust.furigana || '', // 🆕 追加
           phone: cust.phone || '',
           email: cust.email || '',
-          address: cust.address || ''
+          address: cust.address || '',
+          company_name: cust.company_name || '', // 🆕 追加
+          // 症状や詳細要望は予約ごとに変わる可能性があるため、あえて自動入力させない（またはさせる）か選べますが、一旦名簿から引き継ぐ設定にします
+          symptoms: cust.symptoms || '', 
+          request_details: cust.request_details || ''
         }));
         setSelectedCustomerId(cust.id);
       }
@@ -287,9 +293,11 @@ const isAdminEntry = !!adminDate;
       const customerPayload = {
         shop_id: shopId,
         name: customerData.name,
+        furigana: customerData.furigana || null,
         phone: customerData.phone || null,
         email: customerData.email || null,
         address: customerData.address || null, // 🆕 住所を名簿に反映
+        company_name: customerData.company_name || null,
         line_user_id: lineUser?.userId || null,
         total_visits: (existingCust?.total_visits || 0) + 1,
         last_arrival_at: startDateTime.toISOString(),
@@ -336,6 +344,10 @@ const isAdminEntry = !!adminDate;
               parking: customerData.parking,
               building_type: customerData.building_type,
               care_notes: customerData.care_notes,
+              furigana: customerData.furigana, // 🆕 追加
+              company_name: customerData.company_name, // 🆕 追加
+              symptoms: customerData.symptoms, // 🆕 追加
+              request_details: customerData.request_details, // 🆕 追加
               notes: customerData.notes
             }
           }
@@ -344,25 +356,37 @@ const isAdminEntry = !!adminDate;
       
       if (dbError) throw dbError;
       // ✅ 通知メール送信 (resend 関数を呼び出し)
+// ✅ 通知メール・LINE送信 (仕分けロジック搭載のEdge Functionを呼び出し)
       if (!isAdminEntry) {
         await supabaseAnon.functions.invoke('resend', {
           body: {
             type: 'booking', 
             shopId,
-  customerEmail: customerData.email, // ✅ キー名を指定
-  customerName: customerData.name,   // ✅ キー名を指定
-  shopName: customShopName || shop.business_name,
-            staffName: finalStaffName || '店舗スタッフ', // 🆕 判定後のスタッフ名（三土手さん等）を使用
+            customerEmail: customerData.email,
+            customerName: customerData.name,
+            shopName: customShopName || shop.business_name,
+            staffName: finalStaffName || '店舗スタッフ',
             shopEmail: shop.email_contact, 
             startTime: `${targetDate.replace(/-/g, '/')} ${targetTime}`,
             services: menuLabel, 
             cancelUrl, 
             lineUserId: lineUser?.userId || null,
-            notifyLineEnabled: shop.notify_line_enabled
+            notifyLineEnabled: shop.notify_line_enabled,
+
+            // 🆕 業種別カスタマイズ項目をすべて追加
+            furigana: customerData.furigana,
+            address: customerData.address,
+            parking: customerData.parking,
+            buildingType: customerData.building_type, // snake_caseをcamelCaseに変換して送信
+            careNotes: customerData.care_notes,       // 同上
+            companyName: customerData.company_name,   // 同上
+            symptoms: customerData.symptoms,
+            requestDetails: customerData.request_details, // 同上
+            notes: customerData.notes
           }
         });
       }
-
+      
       alert(isAdminEntry ? '爆速ねじ込み完了！' : '予約が完了しました！');
       if (isAdminEntry) {
         const targetPath = fromView === 'timeline' ? 'timeline' : 'reservations';
@@ -490,17 +514,18 @@ const isAdminEntry = !!adminDate;
                   <option value="なし">なし</option>
                 </select>
               ) 
-              // 3. 備考・介助状況（複数行入力）
-              : key === 'notes' || key === 'care_notes' ? (
+// 3. 備考・介助状況・症状・詳細要望（複数行入力）
+              : ['notes', 'care_notes', 'symptoms', 'request_details'].includes(key) ? (
                 <textarea 
                   name={key} 
                   value={customerData[key]} 
                   onChange={handleInputChange} 
                   style={{ ...inputStyle, minHeight: '80px', resize: 'none' }} 
+                  placeholder={`${config.label}を入力`}
                   required={config.required} 
                 />
-              ) 
-              // 4. その他一般（メール、電話、住所、建物の種類など）
+              )
+                            // 4. その他一般（メール、電話、住所、建物の種類など）
               : (
                 <input 
                   name={key}
