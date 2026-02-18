@@ -27,7 +27,8 @@ function ConfirmReservation() {
     staffId,
     fromView,
     visitorZip,
-    visitorAddress
+    visitorAddress,
+    travelTimeMinutes
   } = location.state || {};
   
 const isAdminEntry = !!adminDate; 
@@ -239,19 +240,15 @@ setCustomerData(prev => ({
     fontSize: '1rem' 
   };
 
-// 🆕 4. 保存ロジック（handleReserve）の修正
+// ✅ 修正後の保存ロジック（handleReserve）
   const handleReserve = async () => {
-    // 1. 動的なバリデーション（店主が「必須」とした項目をチェック）
-    // 管理者ねじ込み時は「名前」のみチェックするように既存の挙動を維持
-// 1. 動的なバリデーション（店主が「必須」とした項目をチェック）
+    // --- 1. バリデーションチェック ---
     for (const [key, config] of Object.entries(formConfig)) {
-      // 🆕 判定ロジック：LINE経由なら line_enabled、そうでなければ enabled を参照する
       const isEnabled = lineUser ? config.line_enabled : config.enabled;
-
       if (isEnabled && config.required) {
         if (isAdminEntry && key !== 'name') continue; 
         if (!customerData[key]) {
-                    alert(`${config.label}を入力してください`);
+          alert(`${config.label}を入力してください`);
           return;
         }
       }
@@ -259,21 +256,31 @@ setCustomerData(prev => ({
 
     setIsSubmitting(true);
 
-    const targetDate = adminDate || date;
-    const targetTime = adminTime || time;
-    const startDateTime = new Date(`${targetDate}T${targetTime}`);
-    const interval = shop.slot_interval_min || 15;
-    const buffer = shop.buffer_preparation_min || 0;
-    const totalMinutes = (totalSlotsNeeded * interval) + buffer;
-    const endDateTime = new Date(startDateTime.getTime() + totalMinutes * 60000);
-
-    const cancelToken = crypto.randomUUID();
-    const cancelUrl = `${window.location.origin}/cancel?token=${cancelToken}`;
-
     try {
+      // --- 2. 保存用のラベル作成 (ReferenceError回避のため冒頭で定義) ---
+      const menuLabel = people && people.length > 1
+        ? people.map((p, i) => `${i + 1}人目: ${p.fullName}`).join(' / ')
+        : (people && people[0]?.fullName || 'メニューなし');
+
+      // --- 3. 日時と終了バッファの計算 ---
+      const targetDate = adminDate || date;
+      const targetTime = adminTime || time;
+      const startDateTime = new Date(`${targetDate}T${targetTime}:00`);
+      
+      const interval = shop.slot_interval_min || 15;
+      const buffer = shop.buffer_preparation_min || 0;
+      
+      // 🆕 施術時間 + 準備バッファ + 算出した移動時間（travelTimeMinutes）を合計
+      const totalMinutes = (totalSlotsNeeded * interval) + buffer + (travelTimeMinutes || 0);
+      const endDateTime = new Date(startDateTime.getTime() + totalMinutes * 60000);
+
+      const cancelToken = crypto.randomUUID();
+      const cancelUrl = `${window.location.origin}/cancel?token=${cancelToken}`;
+
       let finalStaffId = staffId;
       let finalStaffName = staffName;
 
+      // スタッフ自動特定（1名のみの場合）
       if (!finalStaffId) {
         const { data: staffs } = await supabase.from('staffs').select('id, name').eq('shop_id', shopId);
         if (staffs && staffs.length === 1) {
@@ -282,48 +289,36 @@ setCustomerData(prev => ({
         }
       }
 
-      // --- 顧客の特定ロジック (customerDataを使用) ---
+      // 既存顧客の検索
       let finalCustomerId = selectedCustomerId;
       let existingCust = null;
-
       if (!finalCustomerId) {
-        let identifierFilter = `shop_id.eq.${shopId}`;
         const orConditions = [];
         if (lineUser?.userId) orConditions.push(`line_user_id.eq.${lineUser.userId}`);
         if (customerData.phone && customerData.phone !== '---') orConditions.push(`phone.eq.${customerData.phone}`);
         
-        const { data: matchedByContact } = await supabase
+        const { data: matched } = await supabase
           .from('customers')
           .select('id, total_visits')
           .or(orConditions.length > 0 ? orConditions.join(',') : `name.eq.${customerData.name}`)
           .eq('shop_id', shopId)
           .maybeSingle();
 
-        if (matchedByContact) {
-          finalCustomerId = matchedByContact.id;
-          existingCust = matchedByContact;
-        } else {
-          const { data: matchedByName } = await supabase.from('customers').select('id, total_visits').eq('shop_id', shopId).eq('name', customerData.name).maybeSingle();
-          if (matchedByName) {
-            finalCustomerId = matchedByName.id;
-            existingCust = matchedByName;
-          }
+        if (matched) {
+          finalCustomerId = matched.id;
+          existingCust = matched;
         }
-      } else {
-        const { data } = await supabase.from('customers').select('id, total_visits').eq('id', finalCustomerId).single();
-        existingCust = data;
       }
 
-// ✅ 2. 名簿データの保存・更新
+      // --- 4. 顧客名簿（customers）の保存・更新 ---
       const customerPayload = {
         shop_id: shopId,
         name: customerData.name,
         furigana: customerData.furigana || null,
         phone: customerData.phone || null,
         email: customerData.email || null,
-        zip_code: visitorZip || null, // 🆕 郵便番号を名簿に保存
+        zip_code: visitorZip || null, // 📮 郵便番号を名簿に保存
         address: customerData.address || null,
-        company_name: customerData.company_name || null,
         line_user_id: lineUser?.userId || null,
         total_visits: (existingCust?.total_visits || 0) + 1,
         last_arrival_at: startDateTime.toISOString(),
@@ -338,7 +333,7 @@ setCustomerData(prev => ({
         finalCustomerId = newCust.id;
       }
 
-      // ✅ 3. 予約データの挿入
+// ✅ 予約データの挿入
       const { error: dbError } = await supabase.from('reservations').insert([
         {
           shop_id: shopId,
@@ -348,9 +343,9 @@ setCustomerData(prev => ({
           customer_name: customerData.name,
           customer_phone: customerData.phone || '---',
           customer_email: customerData.email || 'admin@example.com',
-          zip_code: visitorZip || null, // 🆕 予約データにも郵便番号を紐付け
-          start_at: startDateTime.toISOString(),
-          end_at: endDateTime.toISOString(),          start_time: startDateTime.toISOString(),
+          zip_code: visitorZip || null,
+          // 🆕 ここを start_time と end_time の2つだけに絞ります
+          start_time: startDateTime.toISOString(),
           end_time: endDateTime.toISOString(), 
           total_slots: totalSlotsNeeded,
           res_type: 'normal',
@@ -360,64 +355,33 @@ setCustomerData(prev => ({
           options: { 
             people: people,
             applied_shop_name: customShopName || shop.business_name,
-            // 🆕 訪問特化データや備考をここに集約して保存
-visit_info: {
+            visit_info: {
               address: customerData.address,
               parking: customerData.parking,
-              building_type: customerData.building_type,
-              care_notes: customerData.care_notes,
-              furigana: customerData.furigana,
-              company_name: customerData.company_name,
-              symptoms: customerData.symptoms,
-              request_details: customerData.request_details,
-              notes: customerData.notes,
-              // 🆕 カスタム質問の回答をここに追加！
               custom_answers: customAnswers 
             }
-                    }
+          }
         }
       ]);
       
       if (dbError) throw dbError;
-      // ✅ 通知メール送信 (resend 関数を呼び出し)
-// ✅ 通知メール・LINE送信 (仕分けロジック搭載のEdge Functionを呼び出し)
+
+      // 通知の送信
       if (!isAdminEntry) {
         await supabaseAnon.functions.invoke('resend', {
           body: {
             type: 'booking', 
             shopId,
-            customerEmail: customerData.email,
             customerName: customerData.name,
-            shopName: customShopName || shop.business_name,
-            staffName: finalStaffName || '店舗スタッフ',
-            shopEmail: shop.email_contact, 
             startTime: `${targetDate.replace(/-/g, '/')} ${targetTime}`,
-            services: menuLabel, 
-            cancelUrl, 
-            lineUserId: lineUser?.userId || null,
-            notifyLineEnabled: shop.notify_line_enabled,
-
-            // 🆕 業種別カスタマイズ項目をすべて追加
-            furigana: customerData.furigana,
-            address: customerData.address,
-            parking: customerData.parking,
-            buildingType: customerData.building_type, // snake_caseをcamelCaseに変換して送信
-            careNotes: customerData.care_notes,       // 同上
-            companyName: customerData.company_name,   // 同上
-            symptoms: customerData.symptoms,
-            requestDetails: customerData.request_details, // 同上
-            notes: customerData.notes
+            services: menuLabel,
+            lineUserId: lineUser?.userId || null
           }
         });
       }
       
       alert(isAdminEntry ? '爆速ねじ込み完了！' : '予約が完了しました！');
-      if (isAdminEntry) {
-        const targetPath = fromView === 'timeline' ? 'timeline' : 'reservations';
-        navigate(`/admin/${shopId}/${targetPath}?date=${targetDate}`);
-      } else {
-        navigate('/');
-      }
+      navigate(isAdminEntry ? `/admin/${shopId}/reservations` : '/');
       
     } catch (err) {
       console.error(err);
@@ -425,8 +389,7 @@ visit_info: {
     } finally {
       setIsSubmitting(false);
     }
-  };
-  
+  };    
 // 🆕 読み込み中であることを視覚化する
   if (!shop) {
     return (
