@@ -8,9 +8,56 @@ import {
   ClipboardList, ArrowLeft, Save, CheckCircle2, 
   MapPin, Car, Building2, HeartPulse, MessageSquare, 
   ToggleLeft, ToggleRight,
-  User, Mail, Phone, GraduationCap, Stethoscope, Utensils,
-  Scissors, Palette, Sparkles
+  User, Mail, Phone, Scissors, Sparkles
 } from 'lucide-react';
+
+// ✅ 【修正ポイント1】部品（ConfigItem）を関数の「外」に移動
+const ConfigItem = ({ id, icon: Icon, title, description, formConfig, themeColor, toggleField, updateLabel }) => {
+  if (!formConfig[id]) return null;
+
+  const inputStyle = { width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem' };
+
+  return (
+    <div style={{ marginBottom: '25px', paddingBottom: '20px', borderBottom: '1px solid #f1f5f9' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+        <div style={{ display: 'flex', gap: '12px', flex: 1 }}>
+          <div style={{ padding: '10px', background: `${themeColor}10`, borderRadius: '12px', height: 'fit-content' }}>
+            <Icon size={24} color={themeColor} />
+          </div>
+          <div>
+            <div style={{ fontWeight: 'bold', color: '#1e293b' }}>{title}</div>
+            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{description}</div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: '24px', textAlign: 'center' }}>
+          <div>
+            <div style={{ fontSize: '0.65rem', color: '#64748b', marginBottom: '4px', fontWeight: 'bold' }}>Web</div>
+            <button onClick={() => toggleField(id, 'normal')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: formConfig[id].enabled ? themeColor : '#cbd5e1' }}>
+              {formConfig[id].enabled ? <ToggleRight size={36} /> : <ToggleLeft size={36} />}
+            </button>
+          </div>
+          <div>
+            <div style={{ fontSize: '0.65rem', color: '#16a34a', marginBottom: '4px', fontWeight: 'bold' }}>LINE</div>
+            <button onClick={() => toggleField(id, 'line')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: formConfig[id].line_enabled ? '#16a34a' : '#cbd5e1' }}>
+              {formConfig[id].line_enabled ? <ToggleRight size={36} /> : <ToggleLeft size={36} />}
+            </button>
+          </div>
+        </div>
+      </div>
+      {(formConfig[id].enabled || formConfig[id].line_enabled) && (
+        <div style={{ marginLeft: '46px' }}>
+          <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: themeColor, display: 'block', marginBottom: '6px' }}>表示ラベル名</label>
+          <input 
+            type="text" 
+            value={formConfig[id].label} 
+            onChange={(e) => updateLabel(id, e.target.value)} 
+            style={inputStyle} 
+          />
+        </div>
+      )}
+    </div>
+  );
+};
 
 const FormCustomizer = () => {
   const { shopId } = useParams();
@@ -61,25 +108,14 @@ const FormCustomizer = () => {
     else alert('保存に失敗しました。');
   };
 
-  // ✅ 修正：大文字の INDUSTRY_PRESETS を正しく参照するように修正
   const applyPreset = (presetKey) => {
     if (!presetKey || !INDUSTRY_PRESETS[presetKey]) return;
-    
     const selectedFields = INDUSTRY_PRESETS[presetKey].fields;
     const newConfig = { ...formConfig };
-    
     Object.keys(newConfig).forEach(key => {
       const isSelected = selectedFields.includes(key);
       newConfig[key] = { ...newConfig[key], enabled: isSelected, line_enabled: isSelected };
     });
-
-    if (presetKey === 'beauty') newConfig.request_details.label = "髪のお悩み・希望デザイン";
-    if (presetKey === 'nail') newConfig.request_details.label = "デザインの要望・オフの有無";
-    if (presetKey === 'esthetic') {
-      newConfig.symptoms.label = "現在のお肌やお身体の状態";
-      newConfig.request_details.label = "アレルギー・配慮事項";
-    }
-
     setFormConfig(newConfig);
     showMsg(`${INDUSTRY_PRESETS[presetKey].label}向けに最適化しました！`);
   };
@@ -98,46 +134,6 @@ const FormCustomizer = () => {
 
   const containerStyle = { fontFamily: 'sans-serif', maxWidth: '700px', margin: '0 auto', padding: '20px', paddingBottom: '120px' };
   const cardStyle = { marginBottom: '20px', background: '#fff', padding: '24px', borderRadius: '20px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' };
-  const inputStyle = { width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem' };
-  
-  const ConfigItem = ({ id, icon: Icon, title, description }) => {
-    if (!formConfig[id]) return null;
-    return (
-      <div style={{ marginBottom: '25px', paddingBottom: '20px', borderBottom: '1px solid #f1f5f9' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
-          <div style={{ display: 'flex', gap: '12px', flex: 1 }}>
-            <div style={{ padding: '10px', background: `${themeColor}10`, borderRadius: '12px', height: 'fit-content' }}>
-              <Icon size={24} color={themeColor} />
-            </div>
-            <div>
-              <div style={{ fontWeight: 'bold', color: '#1e293b' }}>{title}</div>
-              <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{description}</div>
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: '24px', textAlign: 'center' }}>
-            <div>
-              <div style={{ fontSize: '0.65rem', color: '#64748b', marginBottom: '4px', fontWeight: 'bold' }}>Web</div>
-              <button onClick={() => toggleField(id, 'normal')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: formConfig[id].enabled ? themeColor : '#cbd5e1' }}>
-                {formConfig[id].enabled ? <ToggleRight size={36} /> : <ToggleLeft size={36} />}
-              </button>
-            </div>
-            <div>
-              <div style={{ fontSize: '0.65rem', color: '#16a34a', marginBottom: '4px', fontWeight: 'bold' }}>LINE</div>
-              <button onClick={() => toggleField(id, 'line')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: formConfig[id].line_enabled ? '#16a34a' : '#cbd5e1' }}>
-                {formConfig[id].line_enabled ? <ToggleRight size={36} /> : <ToggleLeft size={36} />}
-              </button>
-            </div>
-          </div>
-        </div>
-        {(formConfig[id].enabled || formConfig[id].line_enabled) && (
-          <div style={{ marginLeft: '46px' }}>
-            <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: themeColor, display: 'block', marginBottom: '6px' }}>表示ラベル名</label>
-            <input type="text" value={formConfig[id].label} onChange={(e) => updateLabel(id, e.target.value)} style={inputStyle} />
-          </div>
-        )}
-      </div>
-    );
-  };
 
   return (
     <div style={containerStyle}>
@@ -161,7 +157,7 @@ const FormCustomizer = () => {
         <label style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#475569', display: 'block', marginBottom: '10px' }}>
           🏥 業種に合わせて項目を一括セット
         </label>
-        <select onChange={(e) => applyPreset(e.target.value)} style={{ ...inputStyle, background: '#fff', fontWeight: 'bold', color: themeColor }}>
+        <select onChange={(e) => applyPreset(e.target.value)} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem', background: '#fff', fontWeight: 'bold', color: themeColor }}>
           <option value="">業種を選択して自動設定...</option>
           {Object.entries(INDUSTRY_PRESETS).map(([key, val]) => (
             <option key={key} value={key}>{val.label}</option>
@@ -171,22 +167,23 @@ const FormCustomizer = () => {
 
       <h3 style={{ fontSize: '1rem', color: '#64748b', marginBottom: '15px', paddingLeft: '10px' }}>▼ 基本情報</h3>
       <section style={{ ...cardStyle, borderTop: `6px solid #94a3b8` }}>
-        <ConfigItem id="name" icon={User} title="お名前（漢字）" description="必須の識別項目です。" />
-        <ConfigItem id="furigana" icon={User} title="ふりがな" description="読み仮名の取得を有効にします。" />
-        <ConfigItem id="email" icon={Mail} title="メールアドレス" description="通知の送信先になります。" />
-        <ConfigItem id="phone" icon={Phone} title="電話番号" description="緊急時の連絡先です。" />
+        {/* ✅ 【修正ポイント2】プロップスを渡して呼び出す */}
+        <ConfigItem id="name" icon={User} title="お名前（漢字）" description="必須の識別項目です。" formConfig={formConfig} themeColor={themeColor} toggleField={toggleField} updateLabel={updateLabel} />
+        <ConfigItem id="furigana" icon={User} title="ふりがな" description="読み仮名の取得を有効にします。" formConfig={formConfig} themeColor={themeColor} toggleField={toggleField} updateLabel={updateLabel} />
+        <ConfigItem id="email" icon={Mail} title="メールアドレス" description="通知の送信先になります。" formConfig={formConfig} themeColor={themeColor} toggleField={toggleField} updateLabel={updateLabel} />
+        <ConfigItem id="phone" icon={Phone} title="電話番号" description="緊急時の連絡先です。" formConfig={formConfig} themeColor={themeColor} toggleField={toggleField} updateLabel={updateLabel} />
       </section>
 
       <h3 style={{ fontSize: '1rem', color: '#64748b', marginBottom: '15px', paddingLeft: '10px' }}>▼ 業種別・追加項目</h3>
       <section style={{ ...cardStyle, borderTop: `6px solid ${themeColor}` }}>
-        <ConfigItem id="address" icon={MapPin} title="訪問先住所" description="訪問サービスに必須です。" />
-        <ConfigItem id="parking" icon={Car} title="駐車スペース" description="駐車場の有無を確認します。" />
-        <ConfigItem id="symptoms" icon={Sparkles} title="お悩み・状態・レベル" description="エステ、病院、教室用。" />
-        <ConfigItem id="request_details" icon={Scissors} title="詳細要望・デザイン" description="美容室、ネイル、飲食用。" />
-        <ConfigItem id="company_name" icon={Building2} title="会社名・団体名" description="法人・イベント予約用。" />
-        <ConfigItem id="building_type" icon={Building2} title="建物の種類" description="マンション・施設等。" />
-        <ConfigItem id="care_notes" icon={HeartPulse} title="お身体の状況・介助" description="身体介助の有無を確認。" />
-        <ConfigItem id="notes" icon={MessageSquare} title="自由備考欄" description="その他メッセージ。" />
+        <ConfigItem id="address" icon={MapPin} title="訪問先住所" description="訪問サービスに必須です。" formConfig={formConfig} themeColor={themeColor} toggleField={toggleField} updateLabel={updateLabel} />
+        <ConfigItem id="parking" icon={Car} title="駐車スペース" description="駐車場の有無を確認します。" formConfig={formConfig} themeColor={themeColor} toggleField={toggleField} updateLabel={updateLabel} />
+        <ConfigItem id="symptoms" icon={Sparkles} title="お悩み・状態・レベル" description="エステ、病院、教室用。" formConfig={formConfig} themeColor={themeColor} toggleField={toggleField} updateLabel={updateLabel} />
+        <ConfigItem id="request_details" icon={Scissors} title="詳細要望・デザイン" description="美容室、ネイル、飲食用。" formConfig={formConfig} themeColor={themeColor} toggleField={toggleField} updateLabel={updateLabel} />
+        <ConfigItem id="company_name" icon={Building2} title="会社名・団体名" description="法人・イベント予約用。" formConfig={formConfig} themeColor={themeColor} toggleField={toggleField} updateLabel={updateLabel} />
+        <ConfigItem id="building_type" icon={Building2} title="建物の種類" description="マンション・施設等。" formConfig={formConfig} themeColor={themeColor} toggleField={toggleField} updateLabel={updateLabel} />
+        <ConfigItem id="care_notes" icon={HeartPulse} title="お身体の状況・介助" description="身体介助の有無を確認。" formConfig={formConfig} themeColor={themeColor} toggleField={toggleField} updateLabel={updateLabel} />
+        <ConfigItem id="notes" icon={MessageSquare} title="自由備考欄" description="その他メッセージ。" formConfig={formConfig} themeColor={themeColor} toggleField={toggleField} updateLabel={updateLabel} />
       </section>
 
       <button onClick={handleSave} style={{ position: 'fixed', bottom: '24px', right: '24px', padding: '18px 40px', background: themeColor, color: '#fff', border: 'none', borderRadius: '50px', fontWeight: 'bold', boxShadow: `0 10px 25px ${themeColor}66`, zIndex: 1000, display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '1.1rem' }}>

@@ -69,129 +69,103 @@ const payload = await req.json();
     // ==========================================
     // 🆕 パターンC：一斉リマインド送信 (本家ロジック完全維持 + カスタム対応)
     // ==========================================
-    if (type === 'remind_all') {
-      const nowJST = new Date(new Date().getTime() + (9 * 60 * 60 * 1000));
-      const currentHour = nowJST.getUTCHours();
-      if (currentHour >= 23 || currentHour < 9) {
-        return new Response(JSON.stringify({ 
-          message: `現在は日本時間 ${currentHour}時 のため、深夜・早朝の送信を控えます。9時以降の実行時に送信されます。` 
-        }), { headers: corsHeaders });
+// ✅【修正後：正しいコード】
+if (type === 'remind_all') {
+  const nowJST = new Date(new Date().getTime() + (9 * 60 * 60 * 1000));
+  const currentHour = nowJST.getUTCHours();
+  
+  if (currentHour >= 20 || currentHour < 9) {
+    return new Response(JSON.stringify({ 
+      message: `現在は日本時間 ${currentHour}時 のため送信を控えます。9時以降に実行してください。` 
+    }), { headers: corsHeaders });
+  }
+
+  const tomorrowJST = new Date(nowJST);
+  tomorrowJST.setDate(tomorrowJST.getDate() + 1);
+  const dateStr = tomorrowJST.toISOString().split('T')[0];
+
+  const { data: resList, error: resError } = await supabaseAdmin
+    .from('reservations')
+    .select('*, profiles(*), staffs(name)')
+    .gte('start_time', `${dateStr}T00:00:00.000Z`)
+    .lte('start_time', `${dateStr}T23:59:59.999Z`)
+    .eq('remind_sent', false)
+    .eq('res_type', 'normal');
+
+  if (resError) throw resError;
+  console.log(`[REMIND_DEBUG] 検索日: ${dateStr}, 取得: ${resList?.length || 0}件`);
+
+  if (!resList || resList.length === 0) {
+    return new Response(JSON.stringify({ message: 'リマインド対象なし' }), { headers: corsHeaders });
+  }
+  
+  const report = [];
+
+  // ✅ ループは「1回だけ」回します
+  for (const res of resList) {
+    const shop = res.profiles;
+    const info = res.options?.visit_info || {};
+    const resTime = new Date(res.start_time).toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' });
+
+    // メニュー名の組み立て
+    const isMulti = res.options?.people && res.options.people.length > 1;
+    const menuDisplayText = isMulti 
+      ? res.options.people.map((p: any, i: number) => `${i + 1}人目: ${p.services.map((s: any) => s.name).join(', ')}`).join('\n')
+      : (res.options?.services?.map((s: any) => s.name).join(', ') || res.options?.people?.[0]?.services?.map((s: any) => s.name).join(', ') || "メニューなし");
+
+    const placeholderData = { 
+      customerName: res.customer_name, 
+      furigana: info.furigana || "",
+      shopName: shop.business_name, 
+      startTime: `${dateStr.replace(/-/g, '/')} ${resTime}〜`, 
+      services: menuDisplayText, 
+      address: info.address || shop.address || "",
+      parking: info.parking || "",
+      cancelUrl: `https://quest-hub-five.vercel.app/shop/${shop.id}/reserve?cancel=${res.id}`,
+      officialUrl: shop.custom_official_url 
+    };
+
+    let mailOk = false;
+    let lineOk = false;
+
+    // ✅ LINE IDの有無による完全仕分け
+    if (res.line_user_id) {
+      // LINE予約の場合（LINE送信がONならLINE、OFFなら何もしない）
+      if (shop.customer_line_remind_enabled !== false && shop.line_channel_access_token) {
+        const msg = `【${shop.business_name}】\n明日 ${resTime} よりご予約をお待ちしております。\n\n👤 お名前：${res.customer_name} 様\n📋 内容：\n${menuDisplayText}\n\nお気をつけてお越しください！`;
+        lineOk = await safePushToLine(res.line_user_id, msg, shop.line_channel_access_token, "REMIND");
       }
+    } else {
+      // Web予約の場合（メールアドレスがあればメールを送る）
+      if (shop.notify_mail_remind_enabled !== false && res.customer_email) {
+        const subject = applyPlaceholders(shop.mail_sub_customer_remind || `【リマインド】明日のお越しをお待ちしております（${shop.business_name}）`, placeholderData);
+        const html = `
+          <div style="font-family: sans-serif; color: #333; line-height: 1.6; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; padding: 25px; border-radius: 12px;">
+            <h2 style="color: #2563eb;">明日、ご来店をお待ちしております</h2>
+            <p>${res.customer_name} 様</p>
+            <div style="background: #f8fafc; padding: 20px; border-radius: 10px; border: 1px solid #e2e8f0; margin: 20px 0;">
+              <p style="margin: 5px 0;">📅 <strong>日時:</strong> ${dateStr.replace(/-/g, '/')} ${resTime}〜</p>
+              <p style="margin: 5px 0;">📋 <strong>内容:</strong><br>${menuDisplayText}</p>
+              <p style="margin: 5px 0;">📍 <strong>場所:</strong> ${info.address || shop.address || '店舗'}</p>
+            </div>
+          </div>`;
 
-      const tomorrowJST = new Date(nowJST);
-      tomorrowJST.setDate(tomorrowJST.getDate() + 1);
-      const dateStr = tomorrowJST.toISOString().split('T')[0];
-
-const { data: resList, error: resError } = await supabaseAdmin
-        .from('reservations')
-        .select('*, profiles(*), staffs(name)')
-        .gte('start_time', `${dateStr}T00:00:00.000Z`)
-        .lte('start_time', `${dateStr}T23:59:59.999Z`)
-        .eq('remind_sent', false)
-        .eq('res_type', 'normal');
-
-      if (resError) throw resError;
-
-      // 🆕 ここからログ追加！
-      console.log(`[REMIND_DEBUG] 検索対象日(JST): ${dateStr}`);
-      console.log(`[REMIND_DEBUG] 取得件数: ${resList?.length || 0}件`);
-
-      if (!resList || resList.length === 0) {
-        console.log("[REMIND_DEBUG] 送信対象がないため終了します"); // 🆕 これも追加
-        return new Response(JSON.stringify({ message: 'リマインド対象なし' }), { headers: corsHeaders });
-      }
-      
-      const report = [];
-      for (const res of resList) {
-        const shop = res.profiles;
-        if (shop.notify_mail_remind_enabled === false) {
-           await supabaseAdmin.from('reservations').update({ remind_sent: true }).eq('id', res.id);
-           report.push({ id: res.id, email: "disabled", line: "check" });
-           continue; 
-        }
-
-        const resTime = new Date(res.start_time).toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' });
-        const isMulti = res.options?.people && res.options.people.length > 1;
-        const menuDisplayHtml = isMulti 
-          ? res.options.people.map((p: any, i: number) => `${i + 1}人目: ${p.services.map((s: any) => s.name).join(', ')}`).join('<br>')
-          : (res.options?.people?.[0]?.services?.map((s: any) => s.name).join(', ') || res.customer_name);
-        const menuDisplayText = isMulti 
-          ? res.options.people.map((p: any, i: number) => `${i + 1}人目: ${p.services.map((s: any) => s.name).join(', ')}`).join('\n')
-          : (res.options?.people?.[0]?.services?.map((s: any) => s.name).join(', ') || res.customer_name);
-
-for (const res of resList) {
-        const shop = res.profiles;
-        const info = res.options?.visit_info || {}; // 🆕 予約時の詳細情報を取得
-        const resTime = new Date(res.start_time).toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' });
-        
-        // 🆕 プレースホルダーデータを業種別項目に対応させる
-        const placeholderData = { 
-          customerName: res.customer_name, 
-          furigana: info.furigana || "",
-          shopName: shop.business_name, 
-          startTime: `${dateStr.replace(/-/g, '/')} ${resTime}〜`, 
-          services: menuDisplayText, 
-          address: info.address || shop.address || "",
-          parking: info.parking || "",
-          companyName: info.companyName || "",
-          symptoms: info.symptoms || "",
-          requestDetails: info.requestDetails || "",
-          notes: info.notes || "",
-          cancelUrl: '', 
-          officialUrl: shop.custom_official_url 
-        };
-
-        let mailOk = false;
-        let lineOk = false;
-
-        // 🆕 三土手さん設計：入り口（LINE IDの有無）による完全仕分け
-        if (res.line_user_id) {
-          // ✅ LINE経由：LINE設定がONならLINE送信（メールは送らない）
-          if (shop.customer_line_remind_enabled !== false && shop.line_channel_access_token) {
-            const lineText = `【${shop.business_name}】\n明日 ${resTime} よりご予約をお待ちしております。\n\n👤 お名前：${res.customer_name} 様\n📋 内容：\n${menuDisplayText}\n\nお気をつけてお越しください！`;
-            lineOk = await safePushToLine(res.line_user_id, lineText, shop.line_channel_access_token, "REMIND_LINE");
-          }
-        } else {
-          // ✅ Web経由：店主がメールリマインドを許可していればメール送信
-          if (shop.notify_mail_remind_enabled !== false && res.customer_email) {
-            let subject = applyPlaceholders(shop.mail_sub_customer_remind || `【リマインド】明日のお越しをお待ちしております（${shop.business_name}）`, placeholderData);
-            let html = "";
-
-            if (shop.mail_sub_customer_remind && shop.mail_body_customer_remind) {
-              const body = applyPlaceholders(shop.mail_body_customer_remind, placeholderData).replace(/\n/g, '<br>');
-              html = `<div style="font-family: sans-serif; color: #333; line-height: 1.6;">${body}</div>`;
-            } else {
-              // 標準リマインドカード（住所なども反映）
-              html = `
-                <div style="font-family: sans-serif; color: #333; line-height: 1.6; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; padding: 25px; border-radius: 12px;">
-                  <h2 style="color: #2563eb;">明日、ご来店をお待ちしております</h2>
-                  <p>${res.customer_name} 様</p>
-                  <div style="background: #f8fafc; padding: 20px; border-radius: 10px; border: 1px solid #e2e8f0; margin: 20px 0;">
-                    <p style="margin: 5px 0;">📅 <strong>日時:</strong> ${dateStr.replace(/-/g, '/')} ${resTime}〜</p>
-                    <p style="margin: 5px 0;">📋 <strong>内容:</strong><br>${menuDisplayText}</p>
-                    <p style="margin: 5px 0;">📍 <strong>場所:</strong> ${info.address || shop.address || '店舗'}</p>
-                  </div>
-                </div>`;
-            }
-
-            const mailRes = await fetch('https://api.resend.com/emails', {
+const mRes = await fetch('https://api.resend.com/emails', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_API_KEY}` },
               body: JSON.stringify({ from: `${shop.business_name} <infec@snipsnap.biz>`, to: [res.customer_email], subject, html })
             });
-            mailOk = mailRes.ok;
+            mailOk = mRes.ok;
           }
         }
 
+        // 送信処理（LINEまたはメール）が終わった後に1回だけDBを更新
         await supabaseAdmin.from('reservations').update({ remind_sent: true }).eq('id', res.id);
         report.push({ id: res.id, email: mailOk, line: lineOk });
-      }
-
-        await supabaseAdmin.from('reservations').update({ remind_sent: true }).eq('id', res.id);
-        report.push({ id: res.id, email: mailRes.ok, line: lineOk });
-      }
-      return new Response(JSON.stringify({ report }), { status: 200, headers: corsHeaders });
-    }
+      } // ここでループ終了
+      
+  return new Response(JSON.stringify({ report }), { status: 200, headers: corsHeaders });
+}
 
     // ==========================================
     // 🚀 パターンA：店主様への歓迎メール ＆ 三土手さんへの通知送信 (本家ロジック完全維持)
