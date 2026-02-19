@@ -140,6 +140,7 @@ if (type === 'remind_all') {
       shopName: shop.business_name, 
       startTime: `${dateStr.replace(/-/g, '/')} ${resTime}〜`, 
       services: menuDisplayText, 
+      staffName: res.staffs?.name || "店舗スタッフ", // 🆕 ここを追加！
       address: info.address || shop.address || "",
       parking: info.parking || "",
       cancelUrl: `https://quest-hub-five.vercel.app/shop/${shop.id}/reserve?cancel=${res.id}`,
@@ -150,13 +151,13 @@ if (type === 'remind_all') {
     let lineOk = false;
 
     // ✅ LINE IDの有無による完全仕分け
-    if (res.line_user_id) {
-      // LINE予約の場合（LINE送信がONならLINE、OFFなら何もしない）
-      if (shop.customer_line_remind_enabled !== false && shop.line_channel_access_token) {
-        const msg = `【${shop.business_name}】\n明日 ${resTime} よりご予約をお待ちしております。\n\n👤 お名前：${res.customer_name} 様\n📋 内容：\n${menuDisplayText}\n\nお気をつけてお越しください！`;
-        lineOk = await safePushToLine(res.line_user_id, msg, shop.line_channel_access_token, "REMIND");
-      }
-    } else {
+if (res.line_user_id) {
+  if (shop.customer_line_remind_enabled !== false && shop.line_channel_access_token) {
+    // 🆕 担当者名を追加したメッセージに変更
+    const msg = `【${shop.business_name}】\n明日 ${resTime} よりご予約をお待ちしております。\n\n👤 お名前：${res.customer_name} 様\n👤 担当：${res.staffs?.name || '店舗スタッフ'}\n📋 内容：\n${menuDisplayText}\n\nお気をつけてお越しください！`;
+    lineOk = await safePushToLine(res.line_user_id, msg, shop.line_channel_access_token, "REMIND");
+  }
+} else {
       // Web予約の場合（メールアドレスがあればメールを送る）
       if (shop.notify_mail_remind_enabled !== false && res.customer_email) {
         const subject = applyPlaceholders(shop.mail_sub_customer_remind || `【リマインド】明日のお越しをお待ちしております（${shop.business_name}）`, placeholderData);
@@ -314,47 +315,68 @@ const sendMail = async (to: string, isOwner: boolean) => {
       });
     };
 // 🆕 1. 予約の入り口を判定 (payloadにLINE IDが含まれているか)
-// --- 実行エリア ---
+// ==========================================
+    // 🚀 通知実行エリア（三土手さん指定の条件版）
+    // ==========================================
     const isLineBooking = !!lineUserId;
     const isVisit = VISIT_KEYWORDS.some(keyword => (profile?.business_type || '').includes(keyword));
 
-    // A. お客様への通知
+    // --- 1. お客様への通知（経路によってLINEかメールか出し分け） ---
     let customerResData = null;
     let customerLineSent = false;
 
     if (isLineBooking) {
+      // 【LINE予約の場合】LINE通知のみ送る（設定がONの場合）
       if (profile?.customer_line_booking_enabled !== false && currentToken) {
-        // LINEメッセージの出し分け
         const customerMsg = type === 'cancel' 
           ? `【キャンセル完了】\n${customerName} 様、キャンセル手続きが完了いたしました。`
           : `${customerName}様\n${isVisit ? 'ご指定の場所へお伺いいたします。' : 'ご予約ありがとうございます。'}\n\n🏨 店名：${shopName}\n👤 担当：${staffName || '店舗スタッフ'}\n📅 日時：${startTime}〜\n\n📋 内容：\n${services}\n${isVisit ? `📍 訪問先：\n${address}` : ''}\n\n■予約確認・キャンセル\n${cancelUrl}`;
+        
         customerLineSent = await safePushToLine(lineUserId, customerMsg, currentToken, "CUSTOMER");
       }
-    } else if (customerEmail) {
+    } else if (customerEmail && customerEmail !== 'admin@example.com') {
+      // 【ウェブ予約の場合】メール通知のみ送る
       const customerRes = await sendMail(customerEmail, false);
       customerResData = await customerRes.json();
     }
 
-    // B. 店主様への通知
+    // --- 2. 店主様（三土手さん）への通知 ---
     let shopResData = null;
     let shopLineSent = false;
 
-    if (notifyLineEnabled !== false && currentToken && currentAdminId) {
+    // A. 【メール通知】予約経路に関わらず必ず送る（最重要）
+    if (shopEmail && shopEmail !== 'admin@example.com') {
+      const shopRes = await sendMail(shopEmail, true);
+      shopResData = await shopRes.json();
+    }
+
+    // B. 【LINE通知】LineSettingsで「新着通知を受け取る」がチェックされている場合のみ送る
+    if (notifyLineEnabled === true && currentToken && currentAdminId) {
       let detailsText = address ? `\n📍 住: ${address}` : "";
       if (notes) detailsText += `\n💬 備: ${notes}`;
       const shopMsg = type === 'cancel' 
         ? `【予約キャンセル】\n👤 客: ${customerName} 様\n📅 日: ${startTime}〜`
         : `【新着予約】\n👤 客: ${customerName} 様${detailsText}\n📅 日: ${startTime}〜\n📋 メ: ${services}`;
+      
       shopLineSent = await safePushToLine(currentAdminId, shopMsg, currentToken, "OWNER");
-    } else if (shopEmail && shopEmail !== 'admin@example.com') {
-      const shopRes = await sendMail(shopEmail, true);
-      shopResData = await shopRes.json();
     }
 
-    return new Response(JSON.stringify({ success: true, customerLine: customerLineSent, shopLine: shopLineSent }), { status: 200, headers: corsHeaders });
-        
+    // 処理結果のレスポンス
+    return new Response(JSON.stringify({ 
+      success: true, 
+      customerLine: customerLineSent, 
+      shopLine: shopLineSent,
+      shopEmailSent: !!shopResData,
+      customerEmailSent: !!customerResData 
+    }), { status: 200, headers: corsHeaders }
+    );
+
   } catch (error) {
-    console.error("Error:", error.message);
-    return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: corsHeaders });
+    // エラーハンドリング
+    console.error('[ERROR]', error.message);
+    return new Response(
+      JSON.stringify({ error: error.message }), 
+      { status: 500, headers: corsHeaders }
+    );
   }
-});
+}); // 👈 ここで Deno.serve を閉じます

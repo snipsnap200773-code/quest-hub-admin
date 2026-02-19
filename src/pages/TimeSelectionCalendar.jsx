@@ -39,10 +39,12 @@ const visitorAddress = location.state?.visitorAddress;
     // 🆕 3. スタッフと予約情報の取得
     const { data: staffsData } = await supabase.from('staffs').select('*').eq('shop_id', shopId);
     setAllStaffs(staffsData || []);
-    if (effectiveStaffId) {
-      setTargetStaff(staffsData?.find(s => s.id === effectiveStaffId) || null);
-    }
-
+if (effectiveStaffId) {
+  const staff = staffsData?.find(s => s.id === effectiveStaffId);
+  if (staff) {
+    setTargetStaff(staff);
+  }
+}
     let targetShopIds = [shopId];
     if (profile.schedule_sync_id) {
       const { data: siblingShops } = await supabase.from('profiles').select('id').eq('schedule_sync_id', profile.schedule_sync_id);
@@ -209,7 +211,7 @@ const { data: resData } = await supabase.from('reservations').select('start_time
       });
       if (!anyStaffAvailable) return { status: 'booked', label: '×', remaining: 0 };
     }
-    
+
     // 自動詰めロジック
     if (shop.auto_fill_logic && (storeMax === 1 || targetStaff)) {
       const dayRes = existingReservations.filter(r => r.start_time.startsWith(dateStr) && (!targetStaff || r.staff_id === targetStaff.id));
@@ -369,7 +371,7 @@ const { data: resData } = await supabase.from('reservations').select('start_time
           <button 
             style={{ width: '100%', maxWidth: '400px', padding: '18px', background: themeColor, color: '#fff', border: 'none', borderRadius: '16px', fontWeight: 'bold', fontSize: '1.1rem', boxShadow: `0 8px 20px ${themeColor}44`, cursor: 'pointer' }} 
             onClick={() => navigate(`/shop/${shopId}/confirm`, { 
-              state: { ...location.state, date: selectedDate.toLocaleDateString('sv-SE'), time: selectedTime, staffId: targetStaff?.id || staffIdFromUrl } 
+              state: { ...location.state, date: selectedDate.toLocaleDateString('sv-SE'), time: selectedTime, staffId: targetStaff?.id || staffIdFromUrl || location.state?.staffId } 
             })}
           >
             予約内容の確認へ進む

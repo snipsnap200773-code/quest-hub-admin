@@ -370,6 +370,7 @@ const interval = shop.slot_interval_min || 15;
             type: 'booking', 
             shopId,
             customerName: customerData.name,
+            staffName: finalStaffName || staffName,
             shopName: customShopName || shop.business_name, // 🆕 追加
             startTime: `${targetDate.replace(/-/g, '/')} ${targetTime}`,
             services: menuLabel,

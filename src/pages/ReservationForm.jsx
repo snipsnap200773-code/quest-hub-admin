@@ -149,10 +149,18 @@ if (shopRes.data) {
 
         const servRes = await supabase.from('services').select('*').eq('shop_id', shopId).order('sort_order');
         if (servRes.data) setServices(servRes.data);
-        const optRes = await supabase.from('service_options').select('*');
+const optRes = await supabase.from('service_options').select('*');
         if (optRes.data) setOptions(optRes.data);
-      }
-    }
+
+        // 🆕 ここから追加：スタッフが一人なら自動セット
+        const { data: staffList } = await supabase.from('staffs').select('*').eq('shop_id', shopId);
+        if (staffList && staffList.length === 1 && !isAdminMode && !staffIdFromUrl) {
+          // スタッフが1人なら、その人をデフォルト担当にする
+          setTargetStaffName(staffList[0].name);
+          // 次のステップで使えるように一時保存
+          window.autoSelectedStaffId = staffList[0].id;
+        }
+          }
 setLoading(false);
   };
 
@@ -345,8 +353,7 @@ const handleNextStep = () => {
       visitorZip,
       visitorAddress, // ✅ 4. 次のページ（カレンダー）に住所を渡す
       customShopName: displayBranding.name,
-      staffId: adminStaffId || staffIdFromUrl,
-      fromView: fromView
+      staffId: adminStaffId || staffIdFromUrl || window.autoSelectedStaffId,
     };
 
     if (isAdminMode) {
