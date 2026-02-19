@@ -394,6 +394,7 @@ const interval = shop.slot_interval_min || 15;
             customerEmail: customerData.email, // 🆕 これがないとお客様に届きません！
             shopEmail: shop.email_contact,     // 🆕 これがないと店舗に届きません！
             lineUserId: lineUser?.userId || null,
+            cancelUrl: cancelUrl,
             // 🆕 フォームの全入力データを送る
             ...customerData, 
             buildingType: customerData.building_type, // 変数名の微調整
