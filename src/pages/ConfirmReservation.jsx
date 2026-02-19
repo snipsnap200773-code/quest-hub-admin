@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { supabase, supabaseAnon } from '../supabaseClient';
+import { Loader2 } from 'lucide-react';
 
 function ConfirmReservation() {
   const { shopId } = useParams();
@@ -626,19 +627,39 @@ return (
           </div>
         )}
 
-        <button 
+<button 
           onClick={handleReserve} 
           disabled={isSubmitting} 
           style={{ 
             marginTop: '20px', padding: '18px', 
+            // 🆕 送信中は中央揃えにしてアイコンと文字を並べる
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
             background: isSubmitting ? '#94a3b8' : (isAdminEntry ? '#e11d48' : themeColor), 
-            color: '#fff', border: 'none', borderRadius: '12px', fontWeight: 'bold', fontSize: '1.1rem', cursor: 'pointer',
-            boxShadow: `0 4px 12px ${themeColor}33`
+            color: '#fff', border: 'none', borderRadius: '12px', fontWeight: 'bold', fontSize: '1.1rem', 
+            cursor: isSubmitting ? 'not-allowed' : 'pointer',
+            boxShadow: `0 4px 12px ${themeColor}33`,
+            width: '100%' // 幅を安定させる
           }}
         >
-          {isSubmitting ? '処理中...' : (isAdminEntry ? '🚀 ねじ込んで名簿登録' : '予約を確定する')}
+          {isSubmitting ? (
+            <>
+              {/* 🆕 styleに直接アニメーションを書いています。これでグルグル回ります */}
+              <Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} />
+              <span>予約を確定しています...</span>
+            </>
+          ) : (
+            isAdminEntry ? '🚀 ねじ込んで名簿登録' : '予約を確定する'
+          )}
         </button>
-      </div>
+
+        {/* 🆕 グルグル回すための専用のアニメーション命令（一度書けばOK） */}
+        <style>{`
+          @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+          }
+        `}</style>
+              </div>
     </div>
   );
 }
