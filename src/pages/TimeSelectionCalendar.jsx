@@ -173,17 +173,19 @@ const { data: resData } = await supabase.from('reservations').select('start_time
 
     let minRemaining = storeMax;
 
-// --- ✅ 修正後：移動時間を考慮した重複チェック ---
+// --- ✅ 修正後：準備時間と移動時間を考慮した重複チェック ---
       for (let t = targetDateTime.getTime(); t < potentialEndTime.getTime(); t += interval * 60 * 1000) {
-        // 🆕 移動時間をミリ秒に変換。0分のときはバリアなし。
+        // 🆕 ミリ秒に変換
         const travelBufferMs = (travelTimeMinutes || 0) * 60 * 1000;
+        const prepBufferMs = (shop.buffer_preparation_min || 0) * 60 * 1000; // 🆕 準備時間を追加
   
         const globalCount = existingReservations.filter(res => {
           const resStart = new Date(res.start_time).getTime();
           const resEnd = new Date(res.end_time).getTime();
           
-          // 🆕 訪問型なら「終了後＋移動時間」まで埋める。来店型なら「終了時間」まで。
-          const blockedUntil = resEnd + travelBufferMs;
+          // ✅ 修正：既存予約の終了時間に「準備時間」と「移動時間」の両方を足す
+          // これで、来店型なら「終了+30分」、訪問型なら「終了+30分+21分」の壁ができます
+          const blockedUntil = resEnd + prepBufferMs + travelBufferMs;
           
           return t >= resStart && t < blockedUntil;
         }).length;
@@ -197,16 +199,17 @@ const { data: resData } = await supabase.from('reservations').select('start_time
           
           const resStart = new Date(res.start_time).getTime();
           const resEnd = new Date(res.end_time).getTime();
-          const blockedUntil = resEnd + travelBufferMs;
+          
+          // ✅ ここも同様に準備時間を足してスタッフの拘束時間を判定
+          const blockedUntil = resEnd + prepBufferMs + travelBufferMs;
 
-          // 🆕 スタッフごとの判定にも移動バッファを適用
           return t >= resStart && t < blockedUntil;
         }).length;
         return staffCurrentLoad < (staff.concurrent_capacity || 1);
       });
       if (!anyStaffAvailable) return { status: 'booked', label: '×', remaining: 0 };
     }
-
+    
     // 自動詰めロジック
     if (shop.auto_fill_logic && (storeMax === 1 || targetStaff)) {
       const dayRes = existingReservations.filter(r => r.start_time.startsWith(dateStr) && (!targetStaff || r.staff_id === targetStaff.id));

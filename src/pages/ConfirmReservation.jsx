@@ -363,19 +363,27 @@ const interval = shop.slot_interval_min || 15;
       if (dbError) throw dbError;
 
       // 通知の送信
+// ✅ 修正ポイント：宛先メールアドレスと詳細データをすべて backend へ送る
       if (!isAdminEntry) {
         await supabaseAnon.functions.invoke('resend', {
           body: {
             type: 'booking', 
             shopId,
             customerName: customerData.name,
+            shopName: customShopName || shop.business_name, // 🆕 追加
             startTime: `${targetDate.replace(/-/g, '/')} ${targetTime}`,
             services: menuLabel,
-            lineUserId: lineUser?.userId || null
+            customerEmail: customerData.email, // 🆕 これがないとお客様に届きません！
+            shopEmail: shop.email_contact,     // 🆕 これがないと店舗に届きません！
+            lineUserId: lineUser?.userId || null,
+            // 🆕 フォームの全入力データを送る
+            ...customerData, 
+            buildingType: customerData.building_type, // 変数名の微調整
+            careNotes: customerData.care_notes,
+            requestDetails: customerData.request_details
           }
         });
-      }
-      
+      }      
       alert(isAdminEntry ? '爆速ねじ込み完了！' : '予約が完了しました！');
       navigate(isAdminEntry ? `/admin/${shopId}/reservations` : '/');
       
