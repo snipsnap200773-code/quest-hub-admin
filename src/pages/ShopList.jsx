@@ -1,34 +1,59 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
+// 🆕 小カテゴリを取得する関数をマスターから読み込む
+import { getSubCategories } from '../constants/industryMaster';
 import { ChevronLeft } from 'lucide-react';
 
 function ShopList() {
-  const { categoryId } = useParams(); // URLからカテゴリ名（例：美容室・理容室）を取得
+  const { categoryId } = useParams(); // 大カテゴリ名（例：訪問サービス）
   const navigate = useNavigate();
-  const [shops, setShops] = useState([]);
+const [shops, setShops] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [activeSubCat, setActiveSubCat] = useState('すべて');
+  // 🆕 小カテゴリーの画像データを保持するState
+  const [subCategoryData, setSubCategoryData] = useState([]);
 
   useEffect(() => {
-    // ページ遷移時に一番上へスクロール
     window.scrollTo(0, 0);
     fetchFilteredShops();
-  }, [categoryId]);
+    // 🆕 ページ読み込み時に小カテゴリーの画像一覧も取得
+    fetchSubCategoryImages();
+  }, [categoryId, activeSubCat]);
+
+  // 🆕 データベース（portal_categories）から小カテゴリーの画像を取得する関数
+  const fetchSubCategoryImages = async () => {
+    const { data } = await supabase
+      .from('portal_categories')
+      .select('name, image_url')
+      .in('name', subCategories); // industryMasterで定義した小カテゴリー名でフィルタ
+    if (data) setSubCategoryData(data);
+  };
+
+  // 🆕 大カテゴリに対応する小カテゴリリストを取得
+  const subCategories = getSubCategories(categoryId);
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+    fetchFilteredShops();
+  }, [categoryId, activeSubCat]); // 🆕 小カテゴリが変わった時も再取得
 
   const fetchFilteredShops = async () => {
     setLoading(true);
-    // 💡 business_type が URLのカテゴリ名と一致するものだけを取得
-    const { data, error } = await supabase
+    let query = supabase
       .from('profiles')
       .select('*')
       .eq('is_suspended', false)
-      .ilike('business_type', `%${categoryId}%`)
-      .not('business_name', 'is', null)
-      .order('business_name_kana', { ascending: true });
+      .eq('business_type', categoryId) // 大カテゴリで絞り込み
+      .not('business_name', 'is', null);
 
-    if (!error && data) {
-      setShops(data);
+    // 🆕 小カテゴリが選ばれている場合は、その条件を追加
+    if (activeSubCat !== 'すべて') {
+      query = query.eq('sub_business_type', activeSubCat);
     }
+
+    const { data, error } = await query.order('business_name_kana', { ascending: true });
+    if (!error && data) setShops(data);
     setLoading(false);
   };
 
@@ -46,8 +71,71 @@ function ShopList() {
         </div>
       </div>
 
-      {/* 2. メインコンテンツ */}
+{/* 2. メインコンテンツ */}
       <div style={{ maxWidth: '800px', margin: '0 auto', padding: '20px' }}>
+        
+{/* 🆕 小カテゴリーの画像付きミニカード */}
+        {subCategories.length > 0 && (
+          <div style={{ 
+            marginBottom: '25px', 
+            overflowX: 'auto', 
+            display: 'flex', 
+            gap: '12px', 
+            padding: '5px 5px 15px 5px', 
+            WebkitOverflowScrolling: 'touch' 
+          }}>
+            {/* 「すべて」ボタン（これはシンプルに） */}
+            <div 
+              onClick={() => setActiveSubCat('すべて')}
+              style={{
+                minWidth: '70px', height: '70px', borderRadius: '12px',
+                background: activeSubCat === 'すべて' ? '#1e293b' : '#fff',
+                color: activeSubCat === 'すべて' ? '#fff' : '#64748b',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: '0.75rem', fontWeight: 'bold', cursor: 'pointer',
+                boxShadow: '0 4px 10px rgba(0,0,0,0.1)', flexShrink: 0
+              }}
+            >
+              すべて
+            </div>
+
+            {subCategories.map(sub => {
+              // 対応する画像を探す
+              const catInfo = subCategoryData.find(d => d.name === sub);
+              const isActive = activeSubCat === sub;
+
+              return (
+                <div 
+                  key={sub}
+                  onClick={() => setActiveSubCat(sub)}
+                  style={{
+                    minWidth: '100px', height: '70px', borderRadius: '12px',
+                    position: 'relative', overflow: 'hidden', cursor: 'pointer',
+                    flexShrink: 0, transition: '0.2s',
+                    boxShadow: isActive ? `0 0 0 3px #2563eb` : '0 4px 10px rgba(0,0,0,0.1)',
+                    transform: isActive ? 'scale(0.95)' : 'none'
+                  }}
+                >
+                  {/* 背景画像 */}
+                  <div style={{
+                    position: 'absolute', inset: 0,
+                    backgroundImage: `linear-gradient(rgba(0,0,0,0.3), rgba(0,0,0,0.6)), url(${catInfo?.image_url || 'https://via.placeholder.com/100'})`,
+                    backgroundSize: 'cover', backgroundPosition: 'center'
+                  }} />
+                  {/* 文字 */}
+                  <div style={{
+                    position: 'relative', height: '100%', display: 'flex', 
+                    alignItems: 'center', justifyContent: 'center', padding: '5px',
+                    color: '#fff', fontSize: '0.65rem', fontWeight: 'bold', textAlign: 'center',
+                    lineHeight: '1.2'
+                  }}>
+                    {sub}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
         
         <div style={{ marginBottom: '20px' }}>
           <p style={{ fontSize: '0.85rem', color: '#666' }}>

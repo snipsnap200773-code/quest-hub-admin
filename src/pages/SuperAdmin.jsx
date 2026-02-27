@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-// 🆕 共通設定ファイルをインポート（パスが合っているか確認してください）
-import { INDUSTRY_LABELS } from '../constants/industryMaster';
+// 🆕 INDUSTRY_PRESETS を追加して、大・小カテゴリの階層データを使えるようにします
+import { INDUSTRY_PRESETS, INDUSTRY_LABELS, getSubCategories } from '../constants/industryMaster';
 
 // ✅ supabase のインポートはここ1回だけにします
 import { supabase } from '../supabaseClient';
@@ -38,6 +38,8 @@ function SuperAdmin() {
   const [newOwnerName, setNewOwnerName] = useState('');
   const [newOwnerNameKana, setNewOwnerNameKana] = useState('');
   const [newBusinessType, setNewBusinessType] = useState('');
+  // 🆕 新規作成時の小カテゴリStateを追加
+  const [newSubBusinessType, setNewSubBusinessType] = useState('');
   const [newEmail, setNewEmail] = useState('');
   const [newPhone, setNewPhone] = useState('');
 
@@ -47,6 +49,8 @@ function SuperAdmin() {
   const [editOwnerName, setEditOwnerName] = useState('');
   const [editOwnerNameKana, setEditOwnerNameKana] = useState('');
   const [editBusinessType, setEditBusinessType] = useState('');
+  // 🆕 編集時の小カテゴリStateを追加
+  const [editSubBusinessType, setEditSubBusinessType] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editPhone, setEditPhone] = useState('');
   const [editPassword, setEditPassword] = useState('');
@@ -115,16 +119,18 @@ function SuperAdmin() {
     setIsProcessing(true);
     const newPass = Math.random().toString(36).slice(-8);
 
-    // 1. データベースに登録
+// 1. データベースに登録
     const { data, error } = await supabase.from('profiles').insert([{ 
-      id: crypto.randomUUID(), // 🆕 ここで新しくIDを生成して追加
+      id: crypto.randomUUID(), 
       business_name: newShopName, 
       business_name_kana: newShopKana, 
       owner_name: newOwnerName, 
       owner_name_kana: newOwnerNameKana, 
       business_type: newBusinessType, 
+      // 🆕 小カテゴリを保存対象に追加
+      sub_business_type: newSubBusinessType,
       email_contact: newEmail, 
-      phone: newPhone, 
+      phone: newPhone,
       admin_password: newPass, 
       notify_line_enabled: true, 
       is_management_enabled: false 
@@ -171,14 +177,16 @@ function SuperAdmin() {
     setActiveTab('list');
   };
 
-  const updateShopInfo = async (id) => {
+const updateShopInfo = async (id) => {
     const { error } = await supabase.from('profiles').update({ 
       business_name: editName, 
       business_name_kana: editKana, 
       owner_name: editOwnerName, 
       owner_name_kana: editOwnerNameKana, 
       business_type: editBusinessType, 
-      email_contact: editEmail, 
+      // 🆕 小カテゴリを保存対象に追加
+      sub_business_type: editSubBusinessType,
+      email_contact: editEmail,
       phone: editPhone, 
       admin_password: editPassword 
     }).eq('id', id);
@@ -219,10 +227,27 @@ function SuperAdmin() {
     }
   };
 
-  const updateCategory = async (id, enName, imgUrl) => {
-    await supabase.from('portal_categories').update({ en_name: enName, image_url: imgUrl }).eq('id', id);
-    alert('更新完了');
-  };
+// 🆕 名前を基準に更新または新規作成するロジックに変更
+// 🆕 引数に sortOrder を追加
+  const updateCategory = async (name, imgUrl, sortOrder) => {
+    const { error } = await supabase
+      .from('portal_categories')
+      .upsert(
+        { 
+          name: name, 
+          image_url: imgUrl, 
+          sort_order: parseInt(sortOrder) || 0 // 🆕 数字として保存
+        }, 
+        { onConflict: 'name' }
+      );
+    
+    if (error) {
+      alert('エラーが発生しました: ' + error.message);
+    } else {
+      alert(`「${name}」の設定を更新しました`);
+      fetchPortalContent(); 
+    }
+  };    
 
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text);
@@ -273,7 +298,28 @@ function SuperAdmin() {
         </div>
                       </div>
       {filteredShops.map((shop, index) => (
-        <ShopCard key={shop.id} shop={shop} index={createdShops.length - createdShops.findIndex(s => s.id === shop.id)} editingShopId={editingShopId} setEditingShopId={setEditingShopId} editState={{ editName, setEditName, editKana, setEditKana, editOwnerName, setEditOwnerName, editOwnerNameKana, setEditOwnerNameKana, editBusinessType, setEditBusinessType, editEmail, setEditEmail, editPhone, setEditPhone, editPassword, setEditPassword }} onUpdate={updateShopInfo} onDelete={deleteShop} onToggleSuspension={toggleSuspension} onToggleManagement={toggleManagementAccess} onCopy={copyToClipboard} categories={categoriesList} />
+<ShopCard 
+  key={shop.id} 
+  shop={shop} 
+  index={createdShops.length - createdShops.findIndex(s => s.id === shop.id)} 
+  editingShopId={editingShopId} 
+  setEditingShopId={setEditingShopId} 
+  // 🆕 editSubBusinessType と setter を追加
+  editState={{ 
+    editName, setEditName, editKana, setEditKana, 
+    editOwnerName, setEditOwnerName, editOwnerNameKana, setEditOwnerNameKana, 
+    editBusinessType, setEditBusinessType, 
+    editSubBusinessType, setEditSubBusinessType,
+    editEmail, setEditEmail, editPhone, setEditPhone, 
+    editPassword, setEditPassword 
+  }} 
+  onUpdate={updateShopInfo} 
+  onDelete={deleteShop} 
+  onToggleSuspension={toggleSuspension} 
+  onToggleManagement={toggleManagementAccess} 
+  onCopy={copyToClipboard} 
+  categories={categoriesList} 
+/>
       ))}
       {filteredShops.length === 0 && <div style={{textAlign:'center', padding:'40px', color:'#999'}}>該当する店舗はありません</div>}
     </div>
@@ -291,13 +337,33 @@ function SuperAdmin() {
           <input value={newShopName} onChange={(e) => setNewShopName(e.target.value)} placeholder="店舗名" style={{...smallInput, flex:1}} />
           <input value={newShopKana} onChange={(e) => setNewShopKana(e.target.value)} placeholder="かな" style={{...smallInput, flex:1}} />
         </div>
-<select value={newBusinessType} onChange={(e) => setNewBusinessType(e.target.value)} style={smallInput}>
-          <option value="">-- 業種を選択 --</option>
-          {/* 🆕 共通マスターの INDUSTRY_LABELS を使用 */}
+<select 
+          value={newBusinessType} 
+          onChange={(e) => {
+            setNewBusinessType(e.target.value);
+            setNewSubBusinessType(''); // 大カテゴリ変更で小カテゴリをリセット
+          }} 
+          style={smallInput}
+        >
+          <option value="">-- 大カテゴリ（業種）を選択 --</option>
           {INDUSTRY_LABELS.map(opt => (
             <option key={opt} value={opt}>{opt}</option>
           ))}
         </select>
+
+        {/* 🆕 選択した業種に小カテゴリ（サブカテゴリ）がある場合のみ表示 */}
+        {newBusinessType && getSubCategories(newBusinessType).length > 0 && (
+          <select 
+            value={newSubBusinessType} 
+            onChange={(e) => setNewSubBusinessType(e.target.value)} 
+            style={{ ...smallInput, border: '2px solid #3b82f6' }} // 目立つように青枠
+          >
+            <option value="">-- 小カテゴリ（詳細ジャンル）を選択 --</option>
+            {getSubCategories(newBusinessType).map(sub => (
+              <option key={sub} value={sub}>{sub}</option>
+            ))}
+          </select>
+        )}
 
                 <input value={newEmail} onChange={(e) => setNewEmail(e.target.value)} placeholder="店主様メールアドレス（必須）" style={smallInput} />
         <input value={newPhone} onChange={(e) => setNewPhone(e.target.value)} placeholder="電話" style={smallInput} />
@@ -333,13 +399,43 @@ function SuperAdmin() {
           {newsList.map(n => <div key={n.id} style={newsItemStyle}><span>{n.publish_date} {n.title}</span><Trash2 size={14} color="#ef4444" onClick={() => deleteNews(n.id)} style={{cursor:'pointer'}} /></div>)}
         </div>
       </div>
-      <div style={panelStyle}>
-        <h3 style={panelTitle}><ImageIcon size={18} /> カテゴリデザイン</h3>
-        <div style={{display:'flex', flexDirection:'column', gap:'15px'}}>
-          {categoriesList.map(cat => <CategoryRow key={cat.id} cat={cat} onSave={updateCategory} />)}
+<div style={panelStyle}>
+        <h3 style={panelTitle}><ImageIcon size={18} /> カテゴリデザイン（マスター同期）</h3>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* 大カテゴリごとにループ */}
+          {Object.values(INDUSTRY_PRESETS).map(main => (
+            <div key={main.label} style={{ borderBottom: '1px solid #eee', paddingBottom: '15px' }}>
+              <div style={{ fontSize: '0.9rem', fontWeight: '900', color: '#1e293b', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <Store size={14} /> {main.label} <span style={{fontSize: '0.7rem', color: '#94a3b8'}}>(大カテゴリ)</span>
+              </div>
+              
+              {/* 大カテゴリ自体の画像設定 */}
+              <CategoryRow 
+                name={main.label} 
+                dbData={categoriesList.find(c => c.name === main.label)} 
+                onSave={updateCategory} 
+              />
+
+              {/* 小カテゴリ（サブカテゴリ）があれば、インデントして表示 */}
+              {main.subCategories && main.subCategories.length > 0 && (
+                <div style={{ marginLeft: '20px', marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '10px', borderLeft: '2px solid #f1f5f9', paddingLeft: '15px' }}>
+                  {main.subCategories.map(subName => (
+                    <div key={subName}>
+                      <div style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#64748b', marginBottom: '5px' }}>┗ {subName}</div>
+                      <CategoryRow 
+                        name={subName} 
+                        dbData={categoriesList.find(c => c.name === subName)} 
+                        onSave={updateCategory} 
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       </div>
-    </div>
+          </div>
   );
 
   return (
@@ -396,13 +492,15 @@ function ShopCard({ shop, index, editingShopId, setEditingShopId, editState, onU
           {isMgmtEnabled && <span style={{ fontSize: '0.6rem', background: '#7c3aed', color: '#fff', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>管理機能:ON</span>}
         </div>
         <div style={{ display: 'flex', gap: '15px' }}>
-          <Edit2 size={16} color="#64748b" style={{cursor:'pointer'}} onClick={() => {
+<Edit2 size={16} color="#64748b" style={{cursor:'pointer'}} onClick={() => {
             setEditingShopId(shop.id);
             editState.setEditName(shop.business_name || "");
             editState.setEditKana(shop.business_name_kana || "");
             editState.setEditOwnerName(shop.owner_name || "");
             editState.setEditOwnerNameKana(shop.owner_name_kana || "");
             editState.setEditBusinessType(shop.business_type || "");
+            // 🆕 既存の小カテゴリをセット
+            editState.setEditSubBusinessType(shop.sub_business_type || "");
             editState.setEditEmail(shop.email_contact || "");
             editState.setEditPhone(shop.phone || "");
             editState.setEditPassword(shop.admin_password || "");
@@ -421,14 +519,33 @@ function ShopCard({ shop, index, editingShopId, setEditingShopId, editState, onU
             <input value={editState.editName} onChange={(e) => editState.setEditName(e.target.value)} style={smallInput} placeholder="店舗名" />
             <input value={editState.editKana} onChange={(e) => editState.setEditKana(e.target.value)} style={smallInput} placeholder="かな" />
           </div>
-<select value={editState.editBusinessType} onChange={(e) => editState.setEditBusinessType(e.target.value)} style={smallInput}>
+<select 
+  value={editState.editBusinessType} 
+  onChange={(e) => {
+    editState.setEditBusinessType(e.target.value);
+    editState.setEditSubBusinessType(''); // 大カテゴリ変更で小カテゴリをリセット
+  }} 
+  style={smallInput}
+>
   <option value="">-- 業種を選択 --</option>
-  {/* ✅ INDUSTRY_LABELS に修正 */}
   {INDUSTRY_LABELS.map(opt => (
     <option key={opt} value={opt}>{opt}</option>
   ))}
 </select>
-          
+
+{/* 🆕 編集時も二段目の小カテゴリを表示 */}
+{editState.editBusinessType && getSubCategories(editState.editBusinessType).length > 0 && (
+  <select 
+    value={editState.editSubBusinessType} 
+    onChange={(e) => editState.setEditSubBusinessType(e.target.value)} 
+    style={{ ...smallInput, border: '1px solid #7c3aed' }} // 管理画面カラーに合わせる
+  >
+    <option value="">-- 詳細ジャンルを選択 --</option>
+    {getSubCategories(editState.editBusinessType).map(sub => (
+      <option key={sub} value={sub}>{sub}</option>
+    ))}
+  </select>
+)}          
                     <input value={editState.editEmail} onChange={(e) => editState.setEditEmail(e.target.value)} style={smallInput} placeholder="メールアドレス" />
           <input value={editState.editPhone} onChange={(e) => editState.setEditPhone(e.target.value)} style={smallInput} placeholder="電話番号" />
           <input value={editState.editPassword} onChange={(e) => editState.setEditPassword(e.target.value)} style={smallInput} placeholder="PW" />
@@ -479,18 +596,6 @@ function UrlBox({ label, url, onCopy }) {
   );
 }
 
-function CategoryRow({ cat, onSave }) {
-  const [imgUrl, setImgUrl] = useState(cat.image_url || "");
-  return (
-    <div style={{ padding: '12px', border: '1px solid #f0f0f0', borderRadius: '12px', background: '#fcfcfc' }}>
-      <div style={{ fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '8px', color: '#1e293b' }}>{cat.name}</div>
-      <div style={{ display: 'flex', gap: '8px' }}>
-        <input value={imgUrl} onChange={(e) => setImgUrl(e.target.value)} placeholder="Image URL" style={{ ...smallInput, flex: 1, fontSize: '0.75rem', padding: '8px' }} />
-        <button onClick={() => onSave(cat.id, cat.en_name, imgUrl)} style={{ background: '#10b981', border: 'none', borderRadius: '8px', color: '#fff', padding: '8px 12px', cursor:'pointer' }}><Save size={16}/></button>
-      </div>
-    </div>
-  );
-}
 
 // スタイル定数（完全維持）
 const smallInput = { padding: '12px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem', width: '100%', boxSizing: 'border-box', outline: 'none' };
@@ -503,5 +608,43 @@ const newsItemStyle = { display: 'flex', justifyContent: 'space-between', fontSi
 const bottomNavStyle = { position: 'fixed', bottom: 0, left: 0, right: 0, background: '#fff', display: 'flex', justifyContent: 'space-around', padding: '12px 0', borderTop: '1px solid #e2e8f0', boxShadow: '0 -4px 15px rgba(0,0,0,0.05)', zIndex: 9999 };
 const navBtn = { background: 'none', border: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', color: '#94a3b8', cursor: 'pointer', flex: 1 };
 const navBtnActive = { ...navBtn, color: '#e60012' };
+function CategoryRow({ name, dbData, onSave }) {
+  const [imgUrl, setImgUrl] = useState("");
+  const [sortOrder, setSortOrder] = useState(0);
+
+  useEffect(() => {
+    if (dbData) {
+      setImgUrl(dbData.image_url || "");
+      setSortOrder(dbData.sort_order || 0);
+    }
+  }, [dbData]);
+
+  return (
+    <div style={{ padding: '12px', border: '1px solid #f1f5f9', borderRadius: '12px', background: '#fff', marginBottom: '10px' }}>
+      <div style={{ fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '8px', color: '#1e293b' }}>{name}</div>
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+        <input 
+          type="number"
+          value={sortOrder}
+          onChange={(e) => setSortOrder(e.target.value)}
+          placeholder="順"
+          style={{ ...smallInput, width: '60px', padding: '8px', fontSize: '0.8rem', textAlign: 'center', border: '2px solid #e2e8f0' }}
+        />
+        <input 
+          value={imgUrl} 
+          onChange={(e) => setImgUrl(e.target.value)} 
+          placeholder="画像URL" 
+          style={{ ...smallInput, flex: 1, fontSize: '0.75rem', padding: '8px' }} 
+        />
+        <button 
+          onClick={() => onSave(name, imgUrl, sortOrder)} 
+          style={{ background: '#10b981', border: 'none', borderRadius: '10px', color: '#fff', padding: '10px 15px', cursor:'pointer' }}
+        >
+          <Save size={18}/>
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export default SuperAdmin;

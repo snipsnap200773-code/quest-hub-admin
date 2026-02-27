@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
-import { MapPin, User, LogIn, Heart, Calendar, LogOut, X, Mail } from 'lucide-react'; 
+// 🆕 共通マスター（大カテゴリのリスト）をインポート
+import { INDUSTRY_LABELS } from '../constants/industryMaster';
+import { MapPin, User, LogIn, Heart, Calendar, LogOut, X, Mail } from 'lucide-react';
 
 function Home() {
   const [shops, setShops] = useState([]);
@@ -69,13 +71,21 @@ function Home() {
         .order('sort_order', { ascending: true });
       if (newsRes.data) setTopics(newsRes.data);
 
-      // 3. カテゴリデータの取得
+// 3. カテゴリデータの取得
       const catRes = await supabase
         .from('portal_categories')
         .select('*')
+        // 🆕 データベース側でも sort_order 順に並べるよう指示
         .order('sort_order', { ascending: true });
-      if (catRes.data) setCategoryList(catRes.data);
-    };
+
+      if (catRes.data) {
+        // 🆕 さらにJavaScript側でも念のため数字順にソートをかける（空欄対策）
+        const sortedCats = [...catRes.data].sort((a, b) => 
+          (a.sort_order || 999) - (b.sort_order || 999)
+        );
+        setCategoryList(sortedCats);
+      }
+        };
 
     fetchPortalData();
     return () => {
@@ -286,7 +296,7 @@ function Home() {
           </div>
         </div>
 
-        {/* 5. カテゴリグリッド */}
+{/* 5. カテゴリグリッド（大カテゴリのみを表示） */}
         <div style={{ marginBottom: '50px' }}>
           <div style={{ borderLeft: '4px solid #1e293b', paddingLeft: '15px', marginBottom: '25px' }}>
             <h3 style={{ margin: 0, fontSize: '1.3rem', fontWeight: '900', color: '#1e293b' }}>FIND YOUR SERVICE</h3>
@@ -294,19 +304,21 @@ function Home() {
           </div>
           
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '15px' }}>
-            {categoryList.map((cat) => (
-<Link key={cat.name} to={`/category/${cat.name}`} style={{ textDecoration: 'none' }}>
-                <div style={{ height: '140px', borderRadius: '16px', backgroundImage: `linear-gradient(to bottom, rgba(0,0,0,0.1), rgba(0,0,0,0.7)), url(${cat.image_url})`, backgroundSize: 'cover', backgroundPosition: 'center', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'flex-end', padding: '15px', boxShadow: '0 8px 20px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
-                  <div style={{ position: 'relative', zIndex: 1 }}>
-                    <div style={{ color: '#fff', fontSize: '0.55rem', fontWeight: 'bold', letterSpacing: '1px', opacity: 0.8, marginBottom: '2px' }}>{cat.en_name}</div>
-                    <div style={{ color: '#fff', fontSize: '0.95rem', fontWeight: '900', letterSpacing: '0.5px' }}>{cat.name}</div>
+            {/* 🆕 大カテゴリ（INDUSTRY_LABELS）に名前が含まれるものだけを抽出して表示 */}
+            {categoryList
+              .filter(cat => INDUSTRY_LABELS.includes(cat.name))
+              .map((cat) => (
+                <Link key={cat.name} to={`/category/${cat.name}`} style={{ textDecoration: 'none' }}>
+                  <div style={{ height: '140px', borderRadius: '16px', backgroundImage: `linear-gradient(to bottom, rgba(0,0,0,0.1), rgba(0,0,0,0.7)), url(${cat.image_url})`, backgroundSize: 'cover', backgroundPosition: 'center', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'flex-end', padding: '15px', boxShadow: '0 8px 20px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
+                    <div style={{ position: 'relative', zIndex: 1 }}>
+                      <div style={{ color: '#fff', fontSize: '0.55rem', fontWeight: 'bold', letterSpacing: '1px', opacity: 0.8, marginBottom: '2px' }}>{cat.en_name}</div>
+                      <div style={{ color: '#fff', fontSize: '0.95rem', fontWeight: '900', letterSpacing: '0.5px' }}>{cat.name}</div>
+                    </div>
                   </div>
-                </div>
-              </Link>
+                </Link>
             ))}
           </div>
         </div>
-
       </div>
 
       {/* 🆕 ログインモーダル */}

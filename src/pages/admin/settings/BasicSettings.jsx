@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-// 🆕 共通設定ファイルをインポート（FormCustomizerと同じく3階層上を想定）
-import { INDUSTRY_LABELS } from '../../../constants/industryMaster';
+// 🆕 INDUSTRY_LABELS に加え、getSubCategories も追加
+import { INDUSTRY_LABELS, getSubCategories } from '../../../constants/industryMaster';
 
 import { useParams, useNavigate, Link } from 'react-router-dom';
+
 // ... (lucide-reactのインポートは維持)
 
 import { supabase } from "../../../supabaseClient";
@@ -28,9 +29,11 @@ const BasicSettings = () => {
   const [message, setMessage] = useState('');
   const [businessName, setBusinessName] = useState('');
   const [businessNameKana, setBusinessNameKana] = useState('');
-  const [ownerName, setOwnerName] = useState('');
+const [ownerName, setOwnerName] = useState('');
   const [ownerNameKana, setOwnerNameKana] = useState('');
   const [businessType, setBusinessType] = useState('');
+  // 🆕 小カテゴリ保存用の変数を追加
+  const [subBusinessType, setSubBusinessType] = useState('');
   const [phone, setPhone] = useState('');
   const [emailContact, setEmailContact] = useState('');
   const [address, setAddress] = useState('');
@@ -49,12 +52,14 @@ const BasicSettings = () => {
 
   const fetchInitialShopData = async () => {
     const { data } = await supabase.from('profiles').select('*').eq('id', shopId).single();
-    if (data) {
+if (data) {
       setBusinessName(data.business_name || '');
       setBusinessNameKana(data.business_name_kana || '');
       setOwnerName(data.owner_name || '');
       setOwnerNameKana(data.owner_name_kana || '');
       setBusinessType(data.business_type || '');
+      // 🆕 データベースから小カテゴリの値を取得
+      setSubBusinessType(data.sub_business_type || '');
       setPhone(data.phone || '');
       setEmailContact(data.email_contact || '');
 // ✅ 住所に加え、拠点住所と移動スピードも取得する
@@ -115,11 +120,14 @@ const BasicSettings = () => {
   };
   
   // --- 保存処理 ---
-  const handleSave = async () => {
-const { error } = await supabase.from('profiles').update({
+const handleSave = async () => {
+    const { error } = await supabase.from('profiles').update({
       business_name: businessName, business_name_kana: businessNameKana,
       owner_name: ownerName, owner_name_kana: ownerNameKana,
-      business_type: businessType, phone, email_contact: emailContact, address,
+      business_type: businessType, 
+      // 🆕 保存対象に小カテゴリを追加
+      sub_business_type: subBusinessType,
+      phone, email_contact: emailContact, address,
       description, intro_text: introText, notes, image_url: imageUrl, official_url: officialUrl,
       // 🆕 保存対象に追加
       base_address: baseAddress,
@@ -253,21 +261,43 @@ const { error } = await supabase.from('profiles').update({
           </div>
         </div>
 
-<div style={{ marginBottom: '20px' }}>
-          <label style={labelStyle}>業種</label>
-          <select 
-            value={businessType} 
-            onChange={(e) => setBusinessType(e.target.value)} 
-            style={{ ...inputStyle, fontWeight: 'bold', color: themeColor }}
-          >
-            <option value="">-- 業種を選択してください --</option>
-{/* 🆕 共通マスター（INDUSTRY_LABELS）から動的に生成 */}
-            {INDUSTRY_LABELS.map(label => (
-              <option key={label} value={label}>{label}</option>
-            ))}
-                      </select>
-        </div>
+{/* --- 業種選択セクション（二段構え） --- */}
+        <div style={{ marginBottom: '20px', padding: '15px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+          <div style={{ marginBottom: '10px' }}>
+            <label style={labelStyle}>大カテゴリ（業種）</label>
+            <select 
+              value={businessType} 
+              onChange={(e) => {
+                setBusinessType(e.target.value);
+                setSubBusinessType(''); // 大カテゴリを変えたら小カテゴリはリセット
+              }} 
+              style={{ ...inputStyle, fontWeight: 'bold', color: themeColor }}
+            >
+              <option value="">-- 業種を選択してください --</option>
+              {INDUSTRY_LABELS.map(label => (
+                <option key={label} value={label}>{label}</option>
+              ))}
+            </select>
+          </div>
 
+          {/* 🆕 小カテゴリの表示：選択した大カテゴリにサブ項目がある場合のみ出現 */}
+          {businessType && getSubCategories(businessType).length > 0 && (
+            <div style={{ marginTop: '15px', paddingLeft: '15px', borderLeft: `3px solid ${themeColor}` }}>
+              <label style={labelStyle}>詳細ジャンル（小カテゴリ）</label>
+              <select 
+                value={subBusinessType} 
+                onChange={(e) => setSubBusinessType(e.target.value)} 
+                style={inputStyle}
+              >
+                <option value="">-- 詳細を選択 --</option>
+                {getSubCategories(businessType).map(sub => (
+                  <option key={sub} value={sub}>{sub}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+        
         <div style={{ marginBottom: '20px' }}>
           <label style={labelStyle}><Globe size={14} /> 公式サイトURL</label>
           <input value={officialUrl} onChange={(e) => setOfficialUrl(e.target.value)} style={inputStyle} placeholder="https://..." />
