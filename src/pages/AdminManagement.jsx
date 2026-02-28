@@ -327,7 +327,7 @@ const openCheckout = (res) => {
 
 const completePayment = async () => {
     try {
-      const totalSlots = checkoutServices.reduce((sum, s) => sum + (s.slots ?? 1), 0);
+      const totalSlots = checkoutServices.reduce((sum, s) => sum + (s.slots ?? 0), 0);
       const endTime = new Date(new Date(selectedRes.start_time).getTime() + totalSlots * (shop.slot_interval_min || 15) * 60000);
       
       const currentBaseName = checkoutServices.map(s => s.name).join(', ');
@@ -509,7 +509,15 @@ const completePayment = async () => {
       }
 
       // 2. 整形
-      const formattedServices = services.map(svc => ({ id: svc.id, shop_id: cleanShopId, name: svc.name, price: svc.price || 0, category: svc.category, sort_order: svc.sort_order || 0, slots: svc.slots || 1 }));
+const formattedServices = services.map(svc => ({ 
+  id: svc.id, 
+  shop_id: cleanShopId, 
+  name: svc.name, 
+  price: svc.price || 0, 
+  category: svc.category, 
+  sort_order: svc.sort_order || 0, 
+  slots: svc.slots ?? 0 // 🆕 ?? 0 にすることで、0を0のまま保存します
+}));
       const formattedOptions = serviceOptions.map(opt => ({ id: opt.id, service_id: opt.service_id, group_name: opt.group_name, option_name: opt.option_name, additional_price: opt.additional_price || 0 }));
       const formattedAdjustments = adminAdjustments.map(adj => ({ 
         id: adj.id, shop_id: cleanShopId, service_id: adj.service_id, name: adj.name, price: adj.price || 0, 

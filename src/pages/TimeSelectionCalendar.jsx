@@ -273,13 +273,28 @@ const { data: resData } = await supabase.from('reservations').select('start_time
         </div>
       </div>
 
-      {/* 1ヶ月カレンダー本体 */}
+{/* 1ヶ月カレンダー本体 */}
       <div style={{ padding: '15px' }}>
         <div style={{ background: '#fff', borderRadius: '20px', padding: '20px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0' }}>
+          
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-            <button onClick={() => setViewDate(new Date(viewDate.setMonth(viewDate.getMonth() - 1)))} style={{ border: 'none', background: '#f1f5f9', borderRadius: '50%', p: '8px', cursor: 'pointer' }}><ChevronLeft size={20}/></button>
+            {/* 前の月ボタン：新しいDateオブジェクトを生成してStateを更新 */}
+            <button 
+              onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1))} 
+              style={{ border: 'none', background: '#f1f5f9', borderRadius: '50%', padding: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <ChevronLeft size={20}/>
+            </button>
+
             <h3 style={{ margin: 0, fontSize: '1.1rem' }}>{viewDate.getFullYear()}年 {viewDate.getMonth() + 1}月</h3>
-            <button onClick={() => setViewDate(new Date(viewDate.setMonth(viewDate.getMonth() + 1)))} style={{ border: 'none', background: '#f1f5f9', borderRadius: '50%', p: '8px', cursor: 'pointer' }}><ChevronRight size={20}/></button>
+
+            {/* 次の月ボタン：新しいDateオブジェクトを生成してStateを更新 */}
+            <button 
+              onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1))} 
+              style={{ border: 'none', background: '#f1f5f9', borderRadius: '50%', padding: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <ChevronRight size={20}/>
+            </button>
           </div>
           
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '5px', textAlign: 'center' }}>
@@ -312,7 +327,7 @@ const { data: resData } = await supabase.from('reservations').select('start_time
           </div>
         </div>
       </div>
-
+      
       {/* 時間選択カードエリア */}
       <div style={{ padding: '0 15px 20px' }}>
         <h4 style={{ fontSize: '0.9rem', color: '#64748b', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '8px' }}>
