@@ -18,6 +18,7 @@ import ShopList from './pages/ShopList';
 import AdminManagement from './pages/AdminManagement';
 import ShopDetail from './pages/ShopDetail';
 import AdminTimeline from './pages/AdminTimeline';
+import InitialSetup from './pages/InitialSetup';
 
 // 🆕 QUEST HUB 個別設定ページ
 import BasicSettings from './pages/admin/settings/BasicSettings';
@@ -84,11 +85,14 @@ function App() {
         <Route path="/admin/:shopId/settings/menu-guide" element={<MenuSettingsGuide />} />
         <Route path="/admin/:shopId/settings/schedule-guide" element={<ScheduleSettingsGuide />} />
 
-        {/* --- 📱 ユーザーエリア --- */}
+{/* --- 📱 ユーザーエリア --- */}
         <Route path="*" element={
           <div className="mobile-container" style={{ margin: '0 auto', maxWidth: '480px', minHeight: '100vh', position: 'relative' }}>
             <Routes>
               <Route path="/" element={<Home />} />
+              {/* 🆕 追加：初期設定（ID決定）画面へのルート */}
+              <Route path="/setup" element={<InitialSetup />} /> 
+              
               <Route path="/category/:categoryId" element={<ShopList />} />
               <Route path="/trial-registration" element={<TrialRegistration />} />
               <Route path="/shop/:shopId/detail" element={<ShopDetail />} />
