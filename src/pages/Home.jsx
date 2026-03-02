@@ -35,139 +35,89 @@ function Home() {
     { id: 3, url: 'https://images.unsplash.com/photo-1521737604893-d14cc237f11d?auto=format&fit=crop&w=1200&q=80', title: '新しい繋がりを。', desc: 'あなたのサービスを世界へ届けよう' },
   ];
 
+// 🆕 1. ユーザー情報の同期（履歴・プロフィール）を「別の箱」として用意
+  // useEffectの外に書くことで、リロード時とログイン時の両方から使い回せます
+  const handleSyncUser = async (session) => {
+    if (!session) return;
+    try {
+      // プロフィール取得
+      let { data: appUser } = await supabase.from('app_users').select('*').eq('id', session.user.id).maybeSingle();
+
+      if (!appUser) {
+        // 新規登録・ゾンビ修復ロジック（upsert）
+        const randomId = `user_${Math.random().toString(36).substring(2, 7)}`;
+        const { data: newUser, error: insError } = await supabase.from('app_users').upsert({
+          id: session.user.id,
+          display_id: randomId,
+          display_name: session.user.user_metadata?.full_name || 'ゲストユーザー',
+          email: session.user.email,
+          avatar_url: session.user.user_metadata?.avatar_url || null
+        }).select().single();
+        if (insError) throw insError;
+        appUser = newUser;
+        // 過去履歴の紐付け（バックグラウンド実行）
+        supabase.from('customers').update({ auth_id: session.user.id }).eq('email', session.user.email).then();
+      }
+
+      if (appUser) setUserProfile(appUser);
+
+      // 履歴取得（ここが遅くても画面フリーズはさせない！）
+      try {
+        const { data: history } = await supabase
+          .from('reservations')
+          .select('*, profiles(business_name)')
+          .eq('customer_email', session.user.email)
+          .order('start_time', { ascending: false });
+        if (history) setMyHistory(history);
+      } catch (hErr) {
+        console.warn("履歴取得でエラーが発生しましたが、無視して続行します:", hErr);
+      }
+    } catch (err) {
+      console.error("Sync Error:", err);
+    }
+  };
+
+  // 🆕 2. 整理された useEffect
   useEffect(() => {
     const scrollTimer = setTimeout(() => {
       window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
     }, 100);
-
     const sliderTimer = setInterval(() => {
       setCurrentSlide((prev) => (prev === sliderImages.length - 1 ? 0 : prev + 1));
     }, 5000);
 
-    // 🆕 ログイン状態の取得と監視
-    const getSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setUser(session?.user ?? null);
-    };
-    getSession();
+    // 🔥 鉄則：ポータルデータ（トピックなど）は「一番最初」に「独立して」呼ぶ！
+    // これにより、ログイン処理の結果を待たずに画面が表示されます
+    fetchPortalData();
 
-const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    // ログイン状態の初期チェック（リロード時の復旧用）
+    const getInitialSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        setUser(session.user);
+        handleSyncUser(session); // 別の箱（同期関数）を呼ぶ
+      }
+    };
+    getInitialSession();
+
+    // ログイン状態の監視（ログイン・ログアウトの瞬間に動く）
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
       setUser(session?.user ?? null);
-      
       if (session) {
         setIsModalOpen(false);
-
-        try {
-          // 🆕 1. まず会員情報を app_users から取得（ログイン情報の復旧）
-          let { data: appUser } = await supabase
-            .from('app_users')
-            .select('*')
-            .eq('id', session.user.id)
-            .maybeSingle();
-
-          // 🆕 2. データがない場合（新規会員またはゾンビ状態）は自動生成・修復
-          if (!appUser) {
-            const randomId = `user_${Math.random().toString(36).substring(2, 7)}`;
-            
-            const { data: newAppUser, error: insError } = await supabase
-              .from('app_users')
-              .upsert({ // insert ではなく upsert で安全性を確保
-                id: session.user.id,
-                display_id: randomId,
-                display_name: session.user.user_metadata?.full_name || 'ゲストユーザー',
-                email: session.user.email,
-                avatar_url: session.user.user_metadata?.avatar_url || null
-              })
-              .select()
-              .single();
-            
-            if (insError) throw insError;
-            appUser = newAppUser;
-
-            // 🤝 過去履歴の紐付け（完了を待たずに次に進めるように .then() で実行）
-            supabase.from('customers')
-              .update({ auth_id: session.user.id })
-              .eq('email', session.user.email)
-              .then();
-          }
-
-          // 🆕 3. 【重要】履歴を読み込む「前」に、名前だけでも先に表示させる
-          if (appUser) setUserProfile(appUser);
-
-          // 🆕 4. 【安全ガード】履歴取得を完全に独立した try-catch で囲む
-          // これにより、履歴取得が失敗してもトピック表示などの後続処理を止めません
-          try {
-            const { data: historyData } = await supabase
-              .from('reservations')
-              .select('*, profiles(business_name)')
-              .eq('customer_email', session.user.email)
-              .order('start_time', { ascending: false });
-            
-            if (historyData) setMyHistory(historyData);
-          } catch (historyErr) {
-            console.warn("履歴取得で軽微なエラー（無視して続行）:", historyErr);
-          }
-
-        } catch (err) {
-          console.error("認証プロセスでエラーが発生しました:", err);
-        }
+        handleSyncUser(session); // 別の箱（同期関数）を呼ぶ
       } else {
-        // ログアウト時はきれいにお掃除
         setUserProfile(null);
         setMyHistory([]);
       }
-
-      // 🆕 5. 【最重要】ログイン成功・失敗に関わらず、トピックデータを必ず読み込む
-      // これにより「リロードするとトピックが消える」問題を根本解決します
-      fetchPortalData(); 
     });
-            const fetchPortalData = async () => {
-      // 1. 店舗データの取得
-      const shopRes = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('is_suspended', false)
-        .not('business_name', 'is', null);
-      
-      if (shopRes.data) {
-        const latest = [...shopRes.data]
-          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-          .slice(0, 3);
-        setNewShops(latest);
-        setShops(shopRes.data);
-      }
 
-      // 2. ニュース（最新トピック）の取得
-      const newsRes = await supabase
-        .from('portal_news')
-        .select('*')
-        .order('sort_order', { ascending: true });
-      if (newsRes.data) setTopics(newsRes.data);
-
-// 3. カテゴリデータの取得
-      const catRes = await supabase
-        .from('portal_categories')
-        .select('*')
-        // 🆕 データベース側でも sort_order 順に並べるよう指示
-        .order('sort_order', { ascending: true });
-
-      if (catRes.data) {
-        // 🆕 さらにJavaScript側でも念のため数字順にソートをかける（空欄対策）
-        const sortedCats = [...catRes.data].sort((a, b) => 
-          (a.sort_order || 999) - (b.sort_order || 999)
-        );
-        setCategoryList(sortedCats);
-      }
-        };
-
-    fetchPortalData();
     return () => {
       clearTimeout(scrollTimer);
       clearInterval(sliderTimer);
-      authListener.subscription.unsubscribe(); // 監視解除
+      authListener.subscription.unsubscribe();
     };
-  }, []);
-
+  }, []); // 👈 依存配列は空でOK
   // 🆕 認証用関数
 // 🆕 ステートを追加（ファイルの先頭付近の useState 群に入れてください）
   const [isSignUpMode, setIsSignUpMode] = useState(false);
