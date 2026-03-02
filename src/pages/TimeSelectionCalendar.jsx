@@ -13,82 +13,97 @@ function TimeSelectionCalendar() {
   const { totalSlotsNeeded, staffId: staffIdFromState } = location.state || { totalSlotsNeeded: 0 };
   const effectiveStaffId = staffIdFromUrl || staffIdFromState;
 
+  // --- State管理 ---
   const [shop, setShop] = useState(null);
   const [allStaffs, setAllStaffs] = useState([]);
   const [targetStaff, setTargetStaff] = useState(null);
   const [existingReservations, setExistingReservations] = useState([]);
   const [loading, setLoading] = useState(true);
-  
-  // 🆕 カレンダー表示用のState
-  const [viewDate, setViewDate] = useState(new Date()); // 表示中の月
-  const [selectedDate, setSelectedDate] = useState(new Date()); // 選択した日
-  const [selectedTime, setSelectedTime] = useState(null); // 選択した時間
-// 🆕 追加：計算された移動時間を保持（分）
-  const [travelTimeMinutes, setTravelTimeMinutes] = useState(0);
-const visitorAddress = location.state?.visitorAddress; 
+  const [isAuthReady, setIsAuthReady] = useState(false); // 🆕 認証同期完了フラグ
 
-  // 🆕 1. 関数の入り口を復活させます
-const fetchInitialData = async () => {
+  const [viewDate, setViewDate] = useState(new Date()); 
+  const [selectedDate, setSelectedDate] = useState(new Date()); 
+  const [selectedTime, setSelectedTime] = useState(null); 
+  const [travelTimeMinutes, setTravelTimeMinutes] = useState(0);
+  const visitorAddress = location.state?.visitorAddress; 
+
+  // --- 🆕 修正：データ取得ロジック（リトライ・リロードを排除） ---
+  const fetchInitialData = async () => {
     setLoading(true);
 
-    // 🆕 1. セッションの回復を待つ（これが遷移直後の「空き」を防ぐ特効薬です）
-    await supabase.auth.getSession();
+    try {
+      // 1. ショップ情報の取得
+      const { data: profile } = await supabase.from('profiles').select('*').eq('id', shopId).single();
+      if (!profile) { setLoading(false); return; }
+      setShop(profile);
 
-    // 2. データベースからショップ情報を取得
-    const { data: profile } = await supabase.from('profiles').select('*').eq('id', shopId).single();
-    if (!profile) { setLoading(false); return; }
-    setShop(profile);
+      // 2. スタッフ情報の取得
+      const { data: staffsData } = await supabase.from('staffs').select('*').eq('shop_id', shopId);
+      setAllStaffs(staffsData || []);
 
-    // 3. スタッフと予約情報の取得
-    const { data: staffsData } = await supabase.from('staffs').select('*').eq('shop_id', shopId);
-    setAllStaffs(staffsData || []);
+      if (effectiveStaffId) {
+        const staff = staffsData?.find(s => s.id === effectiveStaffId);
+        if (staff) setTargetStaff(staff);
+      }
 
-    if (effectiveStaffId) {
-      const staff = staffsData?.find(s => s.id === effectiveStaffId);
-      if (staff) setTargetStaff(staff);
+      // 3. 同期対象ショップの特定
+      let targetShopIds = [shopId];
+      if (profile.schedule_sync_id) {
+        const { data: siblingShops } = await supabase.from('profiles').select('id').eq('schedule_sync_id', profile.schedule_sync_id);
+        if (siblingShops) targetShopIds = siblingShops.map(s => s.id);
+      }
+
+      // 4. 既存予約の取得（認証が確定しているため、RLSによる空配列問題を回避できます）
+      const { data: resData } = await supabase
+        .from('reservations')
+        .select('start_time, end_time, staff_id, res_type') 
+        .in('shop_id', targetShopIds);
+        
+      setExistingReservations(resData || []);
+
+      // 5. 業種キーワードによる自動判定（三土手さんのロジックを完全維持）
+      const VISIT_KEYWORDS = ['訪問', '出張', '代行', 'デリバリー', '清掃'];
+      const businessTypeName = profile.business_type || '';
+      const isVisit = VISIT_KEYWORDS.some(keyword => businessTypeName.includes(keyword));
+
+      if (isVisit && profile.minutes_per_km) {
+        const speed = profile.minutes_per_km; 
+        const averageDistance = 7; 
+        const calculatedBuffer = averageDistance * speed; 
+        setTravelTimeMinutes(calculatedBuffer);
+        console.log(`🚗 訪問予約を検知: バッファ ${calculatedBuffer}分`);
+      } else {
+        setTravelTimeMinutes(0);
+        console.log(`✂️ 来店予約を検知: 移動バッファ 0分`);
+      }
+    } catch (error) {
+      console.error("データ取得中にエラーが発生しました:", error);
+    } finally {
+      setLoading(false);
     }
-
-    let targetShopIds = [shopId];
-    if (profile.schedule_sync_id) {
-      const { data: siblingShops } = await supabase.from('profiles').select('id').eq('schedule_sync_id', profile.schedule_sync_id);
-      if (siblingShops) targetShopIds = siblingShops.map(s => s.id);
-    }
-
-    // 🆕 修正：既存予約の取得に「res_type」を追加（管理者ブロックを反映させるため）
-    const { data: resData } = await supabase
-      .from('reservations')
-      .select('start_time, end_time, staff_id, res_type') 
-      .in('shop_id', targetShopIds);
-      
-    setExistingReservations(resData || []);
-
-    // ✅ 4. 業種キーワードによる自動判定（三土手さんのオリジナルロジックを完全維持）
-    const VISIT_KEYWORDS = ['訪問', '出張', '代行', 'デリバリー', '清掃'];
-    const businessTypeName = profile.business_type || '';
-    const isVisit = VISIT_KEYWORDS.some(keyword => businessTypeName.includes(keyword));
-
-    if (isVisit && profile.minutes_per_km) {
-      // 🚗 訪問型：キーワードに合致し、かつ設定値がある場合
-      const speed = profile.minutes_per_km; 
-      const averageDistance = 7; 
-      const calculatedBuffer = averageDistance * speed; 
-      setTravelTimeMinutes(calculatedBuffer);
-      console.log(`🚗 訪問予約を検知（業種：${businessTypeName}）: バッファ ${calculatedBuffer}分`);
-    } else {
-      // ✂️ 来店型：キーワードに合致しない（SnipSnapなど）
-      setTravelTimeMinutes(0);
-      console.log(`✂️ 来店予約を検知（業種：${businessTypeName}）: 移動バッファは0分です`);
-    }
-    
-    setLoading(false);
   };
 
-// 🆕 location.key を追加することで、同じショップ内での画面移動でも確実に再取得を走らせます
-  useEffect(() => { 
-    fetchInitialData(); 
-  }, [shopId, effectiveStaffId, location.key]);
-    
-  // --- ⚙️ 三土手さんの本家エンジン（完全継承） ---
+  // --- 🆕 修正：認証状態の監視 ---
+  useEffect(() => {
+    // Supabaseのセッション確定を監視
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // 初期セッション確認またはサインイン時に「Ready」にする
+      if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
+        setIsAuthReady(true);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // --- 🆕 修正：認証がReadyになったらデータを取得 ---
+  useEffect(() => {
+    if (isAuthReady) {
+      fetchInitialData();
+    }
+  }, [isAuthReady, shopId, effectiveStaffId]);
+
+  // --- ⚙️ エンジンロジック（三土手さんのロジックを完全継承） ---
   const checkIsRegularHoliday = (date) => {
     if (!shop?.business_hours?.regular_holidays) return false;
     const holidays = shop.business_hours.regular_holidays;
@@ -138,7 +153,6 @@ const fetchInitialData = async () => {
     return slots;
   }, [shop]);
 
-// ✅ 拡張版：空き状況チェック
   const checkAvailability = (date, timeStr) => {
     if (!shop?.business_hours) return { status: 'none', remaining: 0 };
     if (checkIsRegularHoliday(date)) return { status: 'closed', label: '休', remaining: 0 };
@@ -158,15 +172,12 @@ const fetchInitialData = async () => {
     const buffer = shop.buffer_preparation_min || 0;
     const interval = shop.slot_interval_min || 15;
 
-// --- ✅ 訪問移動時間を加味した合計拘束時間の計算 ---
-    // 施術時間 ＋ 準備時間(buffer) ＋ 移動時間(travelTimeMinutes) をすべて合計する
     const totalMinRequired = (totalSlotsNeeded * interval) + buffer + (travelTimeMinutes || 0);
     const potentialEndTime = new Date(targetDateTime.getTime() + totalMinRequired * 60 * 1000);
         
     const [closeH, closeM] = closeTime.split(':').map(Number);
     const closeDateTime = new Date(`${dateStr}T${String(closeH).padStart(2,'0')}:${String(closeM).padStart(2,'0')}:00`);
 
-    // サービス終了時間が1分でも営業終了時間を過ぎたら「△（表示制限）」
     if (potentialEndTime > closeDateTime) return { status: 'short', label: '△', remaining: 0 };
 
     const limitDays = Math.floor((shop.min_lead_time_hours || 0) / 24);
@@ -186,36 +197,26 @@ const fetchInitialData = async () => {
 
     let minRemaining = storeMax;
 
-// --- ✅ 修正後：準備時間と移動時間を考慮した重複チェック ---
-      for (let t = targetDateTime.getTime(); t < potentialEndTime.getTime(); t += interval * 60 * 1000) {
-        // 🆕 ミリ秒に変換
-        const travelBufferMs = (travelTimeMinutes || 0) * 60 * 1000;
-        const prepBufferMs = (shop.buffer_preparation_min || 0) * 60 * 1000; // 🆕 準備時間を追加
+    for (let t = targetDateTime.getTime(); t < potentialEndTime.getTime(); t += interval * 60 * 1000) {
+      const travelBufferMs = (travelTimeMinutes || 0) * 60 * 1000;
+      const prepBufferMs = (shop.buffer_preparation_min || 0) * 60 * 1000;
   
-        const globalCount = existingReservations.filter(res => {
-          const resStart = new Date(res.start_time).getTime();
-          const resEnd = new Date(res.end_time).getTime();
-          
-          // ✅ 修正：既存予約の終了時間に「準備時間」と「移動時間」の両方を足す
-          // これで、来店型なら「終了+30分」、訪問型なら「終了+30分+21分」の壁ができます
-          const blockedUntil = resEnd + prepBufferMs + travelBufferMs;
-          
-          return t >= resStart && t < blockedUntil;
-        }).length;
+      const globalCount = existingReservations.filter(res => {
+        const resStart = new Date(res.start_time).getTime();
+        const resEnd = new Date(res.end_time).getTime();
+        const blockedUntil = resEnd + prepBufferMs + travelBufferMs;
+        return t >= resStart && t < blockedUntil;
+      }).length;
         
-        if (globalCount >= storeMax) return { status: 'booked', label: '×', remaining: 0 };
+      if (globalCount >= storeMax) return { status: 'booked', label: '×', remaining: 0 };
       minRemaining = Math.min(minRemaining, storeMax - globalCount);
 
       const anyStaffAvailable = activeStaffs.some(staff => {
         const staffCurrentLoad = existingReservations.filter(res => {
           if (res.staff_id !== staff.id) return false;
-          
           const resStart = new Date(res.start_time).getTime();
           const resEnd = new Date(res.end_time).getTime();
-          
-          // ✅ ここも同様に準備時間を足してスタッフの拘束時間を判定
           const blockedUntil = resEnd + prepBufferMs + travelBufferMs;
-
           return t >= resStart && t < blockedUntil;
         }).length;
         return staffCurrentLoad < (staff.concurrent_capacity || 1);
@@ -223,7 +224,6 @@ const fetchInitialData = async () => {
       if (!anyStaffAvailable) return { status: 'booked', label: '×', remaining: 0 };
     }
 
-    // 自動詰めロジック
     if (shop.auto_fill_logic && (storeMax === 1 || targetStaff)) {
       const dayRes = existingReservations.filter(r => r.start_time.startsWith(dateStr) && (!targetStaff || r.staff_id === targetStaff.id));
       if (dayRes.length > 0) {
@@ -254,7 +254,6 @@ const fetchInitialData = async () => {
     return { status: 'available', label: '◎', remaining: minRemaining };
   };
 
-  // --- 📅 カレンダー描画用ロジック ---
   const calendarDays = useMemo(() => {
     const year = viewDate.getFullYear();
     const month = viewDate.getMonth();
@@ -266,13 +265,15 @@ const fetchInitialData = async () => {
     return days;
   }, [viewDate]);
 
-  if (loading) return <div style={{textAlign:'center', padding:'100px'}}>読み込み中...</div>;
+  // --- 🆕 修正：レンダリング条件（認証同期が終わるまで待機） ---
+  if (!isAuthReady || loading) {
+    return <div style={{textAlign:'center', padding:'100px', color: '#64748b'}}>読み込み中...</div>;
+  }
 
   const themeColor = shop?.theme_color || '#2563eb';
 
   return (
     <div style={{ maxWidth: '500px', margin: '0 auto', fontFamily: 'sans-serif', color: '#333', background: '#f8fafc', minHeight: '100vh', paddingBottom: '140px' }}>
-      {/* ヘッダー */}
       <div style={{ padding: '20px', background: '#fff', borderBottom: '1px solid #e2e8f0', sticky: 'top', zIndex: 10 }}>
         <button onClick={() => navigate(-1)} style={{ border: 'none', background: 'none', color: '#64748b', fontSize: '0.9rem', marginBottom: '10px', cursor: 'pointer' }}>← 戻る</button>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -284,79 +285,65 @@ const fetchInitialData = async () => {
         </div>
       </div>
 
-{/* 1ヶ月カレンダー本体 */}
-<div style={{ padding: '15px' }}>
-  <div style={{ background: '#fff', borderRadius: '20px', padding: '20px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0' }}>
-    
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-      {/* 前の月ボタン：prevを使って「全く新しいDate」を生成（Immutabilityの確保） */}
-      <button 
-        onClick={() => setViewDate(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))} 
-        style={{ border: 'none', background: '#f1f5f9', borderRadius: '50%', padding: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-      >
-        <ChevronLeft size={20}/>
-      </button>
-
-      {/* 新しいオブジェクトが渡されるので、ここが確実に再レンダリングされます */}
-      <h3 style={{ margin: 0, fontSize: '1.1rem' }}>
-        {viewDate.getFullYear()}年 {viewDate.getMonth() + 1}月
-      </h3>
-
-      {/* 次の月ボタン：prevを使って「全く新しいDate」を生成（Immutabilityの確保） */}
-      <button 
-        onClick={() => setViewDate(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))} 
-        style={{ border: 'none', background: '#f1f5f9', borderRadius: '50%', padding: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-      >
-        <ChevronRight size={20}/>
-      </button>
-    </div>
-    
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '5px', textAlign: 'center' }}>
-      {['日','月','火','水','木','金','土'].map((d, i) => (
-        <div key={d} style={{ fontSize: '0.7rem', color: i === 0 ? '#ef4444' : i === 6 ? '#2563eb' : '#94a3b8', fontWeight: 'bold', marginBottom: '10px' }}>{d}</div>
-      ))}
-      {calendarDays.map((date, i) => {
-        if (!date) return <div key={`empty-${i}`} />;
-        const isSelected = selectedDate?.toDateString() === date.toDateString();
-        const isHoliday = checkIsRegularHoliday(date);
-        const isPast = date < new Date(new Date().setHours(0,0,0,0));
-        
-        return (
-          <div 
-            key={date.toString()} 
-            onClick={() => !isHoliday && !isPast && setSelectedDate(date)}
-            style={{ 
-              padding: '10px 0', borderRadius: '12px', cursor: isHoliday || isPast ? 'default' : 'pointer',
-              background: isSelected ? themeColor : 'transparent',
-              color: isSelected ? '#fff' : (isHoliday || isPast ? '#cbd5e1' : '#1e293b'),
-              fontWeight: isSelected ? 'bold' : 'normal',
-              position: 'relative'
-            }}
-          >
-            {date.getDate()}
-            {!isHoliday && !isPast && <div style={{ width: '4px', height: '4px', background: isSelected ? '#fff' : themeColor, borderRadius: '50%', margin: '2px auto 0' }} />}
+      <div style={{ padding: '15px' }}>
+        <div style={{ background: '#fff', borderRadius: '20px', padding: '20px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <button 
+              onClick={() => setViewDate(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))} 
+              style={{ border: 'none', background: '#f1f5f9', borderRadius: '50%', padding: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <ChevronLeft size={20}/>
+            </button>
+            <h3 style={{ margin: 0, fontSize: '1.1rem' }}>
+              {viewDate.getFullYear()}年 {viewDate.getMonth() + 1}月
+            </h3>
+            <button 
+              onClick={() => setViewDate(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))} 
+              style={{ border: 'none', background: '#f1f5f9', borderRadius: '50%', padding: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <ChevronRight size={20}/>
+            </button>
           </div>
-        );
-      })}
-    </div>
-  </div>
-</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '5px', textAlign: 'center' }}>
+            {['日','月','火','水','木','金','土'].map((d, i) => (
+              <div key={d} style={{ fontSize: '0.7rem', color: i === 0 ? '#ef4444' : i === 6 ? '#2563eb' : '#94a3b8', fontWeight: 'bold', marginBottom: '10px' }}>{d}</div>
+            ))}
+            {calendarDays.map((date, i) => {
+              if (!date) return <div key={`empty-${i}`} />;
+              const isSelected = selectedDate?.toDateString() === date.toDateString();
+              const isHoliday = checkIsRegularHoliday(date);
+              const isPast = date < new Date(new Date().setHours(0,0,0,0));
+              return (
+                <div 
+                  key={date.toString()} 
+                  onClick={() => !isHoliday && !isPast && setSelectedDate(date)}
+                  style={{ 
+                    padding: '10px 0', borderRadius: '12px', cursor: isHoliday || isPast ? 'default' : 'pointer',
+                    background: isSelected ? themeColor : 'transparent',
+                    color: isSelected ? '#fff' : (isHoliday || isPast ? '#cbd5e1' : '#1e293b'),
+                    fontWeight: isSelected ? 'bold' : 'normal',
+                    position: 'relative'
+                  }}
+                >
+                  {date.getDate()}
+                  {!isHoliday && !isPast && <div style={{ width: '4px', height: '4px', background: isSelected ? '#fff' : themeColor, borderRadius: '50%', margin: '2px auto 0' }} />}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
       
-      {/* 時間選択カードエリア */}
       <div style={{ padding: '0 15px 20px' }}>
         <h4 style={{ fontSize: '0.9rem', color: '#64748b', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '8px' }}>
           <CalendarIcon size={16} /> {selectedDate.getMonth()+1}月{selectedDate.getDate()}日の空き時間
         </h4>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-{timeSlots.map(time => {
+          {timeSlots.map(time => {
             const res = checkAvailability(selectedDate, time);
-            // 🆕 'short'（時間不足）も null を返して表示しないようにする
             if (['none', 'closed', 'rest', 'past', 'booked', 'gap', 'short'].includes(res.status)) return null;
-                        
             const isSelected = selectedTime === time;
-            // 🆕 マンツーマンか複数人かで表示を分ける
             const isSolo = (shop?.max_capacity || 1) === 1;
-
             return (
               <button
                 key={time}
@@ -383,7 +370,6 @@ const fetchInitialData = async () => {
             );
           })}
         </div>
-        {/* その日の空きがない場合 */}
         {timeSlots.every(t => ['none', 'closed', 'rest', 'past', 'booked', 'gap'].includes(checkAvailability(selectedDate, t).status)) && (
           <div style={{ textAlign: 'center', padding: '40px', background: '#fff', borderRadius: '20px', color: '#94a3b8' }}>
             ごめんなさい！<br/>この日は予約がいっぱいです。
@@ -391,7 +377,6 @@ const fetchInitialData = async () => {
         )}
       </div>
 
-      {/* 確定フッター */}
       {selectedTime && (
         <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: 'rgba(255,255,255,0.9)', backdropFilter: 'blur(10px)', padding: '20px', borderTop: '1px solid #e2e8f0', textAlign: 'center', zIndex: 100, boxShadow: '0 -10px 20px rgba(0,0,0,0.05)' }}>
           <div style={{ marginBottom: '12px', fontSize: '0.95rem' }}>

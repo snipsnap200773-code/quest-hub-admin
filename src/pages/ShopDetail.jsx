@@ -53,6 +53,17 @@ function ShopDetail() {
   // ✅ テーマカラーを抽出（デフォルト青）
   const themeColor = shop?.theme_color || '#2563eb';
 
+  // ✅ 1. ここから「handleEmailReservation」関数を追加
+  const handleEmailReservation = async () => {
+    // 画面遷移の瞬間に認証セッションを最新にする（リロードと同じ効果）
+    await supabase.auth.getSession();
+    
+    // 認証情報がブラウザにセットされるまで、0.1秒（100ms）だけ待ってから移動
+    setTimeout(() => {
+      navigate(`/shop/${shopId}/reserve`);
+    }, 100);
+  };
+
   // ✅ Googleマップ埋め込み用のURL形式
   const googleMapEmbedUrl = shop.address 
     ? `https://maps.google.com/maps?q=${encodeURIComponent(shop.address)}&output=embed`
@@ -244,11 +255,21 @@ function ShopDetail() {
         </h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
           
-          {/* ✅ メール予約ボタンのカラー連動 */}
-          <Link to={`/shop/${shop.id}/reserve`} style={{ ...actionButtonStyle, background: themeColor, color: '#fff' }}>
+{/* ✅ Link から button に変更し、上で作った handleEmailReservation を呼びます */}
+          <button 
+            onClick={handleEmailReservation} 
+            style={{ 
+              ...actionButtonStyle, 
+              background: themeColor, 
+              color: '#fff',
+              border: 'none',     // button特有の枠線を消す
+              cursor: 'pointer',   // マウスを乗せた時に指マークにする
+              width: '100%'        // レイアウトを崩さないための設定
+            }}
+          >
             <Mail size={24} color="#fff" />メール予約
-          </Link>
-
+          </button>
+          
           {(shop.liff_id || shop.line_official_url) ? (
             <a 
               href={shop.liff_id ? `https://liff.line.me/${shop.liff_id}` : shop.line_official_url} 
