@@ -44,28 +44,48 @@ function Home() {
   };
 
   // 🆕 2. 【部品】ユーザー情報と履歴を同期する関数
-  const handleSyncUser = async (session) => {
+const handleSyncUser = async (session) => {
     if (!session) return;
     try {
-      let { data: appUser } = await supabase.from('app_users').select('*').eq('id', session.user.id).maybeSingle();
+      // 1. まず、app_usersにデータがあるか確認（読み込みを先に行う）
+      const { data: appUser, error: fetchError } = await supabase
+        .from('app_users')
+        .select('*')
+        .eq('id', session.user.id)
+        .maybeSingle();
 
-      if (!appUser) {
+      let currentUser = appUser;
+
+      // 🆕 強化ポイント：データが「本当に存在しない」時だけ作成処理を行う
+      if (!appUser && !fetchError) {
         const randomId = `user_${Math.random().toString(36).substring(2, 7)}`;
-        const { data: newUser } = await supabase.from('app_users').upsert({
-          id: session.user.id,
-          display_id: randomId,
-          display_name: session.user.user_metadata?.full_name || 'ゲストユーザー',
-          email: session.user.email,
-          avatar_url: session.user.user_metadata?.avatar_url || null
-        }).select().single();
-        appUser = newUser;
-        // 過去履歴の紐付け
-        supabase.from('customers').update({ auth_id: session.user.id }).eq('email', session.user.email).then();
+        
+        // upsertを使用し、もし一瞬の差でデータが作られていてもエラーにしない設定
+        const { data: newUser, error: insError } = await supabase
+          .from('app_users')
+          .upsert({
+            id: session.user.id,
+            display_id: randomId,
+            display_name: session.user.user_metadata?.full_name || 'ゲストユーザー',
+            email: session.user.email,
+            avatar_url: session.user.user_metadata?.avatar_url || null
+          }, { onConflict: 'id' }) // IDが重なったら更新（無視）する
+          .select()
+          .single();
+        
+        if (!insError) {
+          currentUser = newUser;
+          // 過去履歴の紐付け（バックグラウンド実行）
+          supabase.from('customers').update({ auth_id: session.user.id }).eq('email', session.user.email).then();
+        }
       }
 
-      if (appUser) setUserProfile(appUser);
+      // 2. プロフィール情報をセット
+      if (currentUser) {
+        setUserProfile(currentUser);
+      }
 
-      // 履歴取得（安全ガード付き）
+      // 3. 履歴取得（独立したtry-catchで安全に実行）
       try {
         const { data: history } = await supabase
           .from('reservations')
@@ -74,13 +94,14 @@ function Home() {
           .order('start_time', { ascending: false });
         if (history) setMyHistory(history);
       } catch (hErr) {
-        console.warn("History Fetch Error:", hErr);
+        console.warn("履歴の取得をスキップしました:", hErr);
       }
+
     } catch (err) {
-      console.error("User Sync Error:", err);
+      console.error("ユーザー同期中にエラーが発生しました:", err);
     }
   };
-
+  
   // 🆕 3. 【司令塔】useEffect：ページを開いた瞬間に一度だけ動く
   useEffect(() => {
     const scrollTimer = setTimeout(() => { window.scrollTo({ top: 0, left: 0, behavior: 'instant' }); }, 100);
