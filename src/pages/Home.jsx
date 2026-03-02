@@ -14,6 +14,8 @@ function Home() {
   const [categoryList, setCategoryList] = useState([]);
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
+  const [isEditingName, setIsEditingName] = useState(false); // 編集モードのON/OFF
+  const [editName, setEditName] = useState('');              // 入力中の名前
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -97,12 +99,33 @@ const handleSyncUser = async (session) => {
         console.warn("履歴の取得をスキップしました:", hErr);
       }
 
+} catch (err) {
+      console.error("ユーザー同期中にエラーが発生しました:", err);
+    }
+  };
+
+  // 🆕 表示名をデータベースに保存する関数
+  const handleUpdateName = async () => {
+    if (!editName.trim()) return; // 空白なら何もしない
+
+    try {
+      const { error } = await supabase
+        .from('app_users')
+        .update({ display_name: editName })
+        .eq('id', user.id);
+
+      if (error) throw error;
+
+      // データベースの更新が成功したら、画面上のデータも書き換える
+      setUserProfile({ ...userProfile, display_name: editName });
+      setIsEditingName(false); // 編集モードを終了
     } catch (err) {
-      console.error("ユーザー同期中にエラーが発生しました:", err);
+      console.error("Name Update Error:", err);
+      alert("名前の保存に失敗しました。");
     }
   };
-  
-  // 🆕 3. 【司令塔】useEffect：ページを開いた瞬間に一度だけ動く
+  
+  // 🆕 3. 【司令塔】useEffect：ページを開いた瞬間に一度だけ動く
   useEffect(() => {
     const scrollTimer = setTimeout(() => { window.scrollTo({ top: 0, left: 0, behavior: 'instant' }); }, 100);
     const sliderTimer = setInterval(() => { setCurrentSlide((prev) => (prev === sliderImages.length - 1 ? 0 : prev + 1)); }, 5000);
@@ -257,16 +280,50 @@ const handleSyncUser = async (session) => {
 {/* 🆕 お客様専用：ログイン後のパーソナライズボード */}
         {user && (
           <div style={{ background: 'linear-gradient(135deg, #07aadb 0%, #0284c7 100%)', borderRadius: '16px', padding: '20px', marginBottom: '25px', color: '#fff', boxShadow: '0 8px 20px rgba(7, 170, 219, 0.2)' }}>
-<h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 'bold', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              {/* 🆕 会員IDを表示 */}
+            <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 'bold', display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <span style={{ fontSize: '0.8rem', opacity: 0.8, fontWeight: 'normal' }}>
                 @{userProfile?.display_id || 'guest_user'}
               </span>
-              <span>
-                こんにちは、{userProfile?.display_name || 'ゲスト'} 様
-              </span>
+
+{/* 🆕 編集モードかどうかの条件分岐 */}
+{isEditingName ? (
+  <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+    <input 
+      value={editName}
+      onChange={(e) => setEditName(e.target.value)}
+      style={{ color: '#333', padding: '4px 10px', borderRadius: '8px', border: 'none', fontSize: '1rem', width: '150px' }}
+      placeholder="新しい名前"
+      autoFocus
+    />
+    <button onClick={handleUpdateName} style={{ background: '#fff', color: '#07aadb', border: 'none', padding: '4px 12px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.8rem' }}>保存</button>
+    <button onClick={() => setIsEditingName(false)} style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', border: 'none', padding: '4px 12px', borderRadius: '8px', fontSize: '0.8rem', cursor: 'pointer' }}>取消</button>
+  </div>
+) : (
+  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+    <span>こんにちは、{userProfile?.display_name || 'ゲスト'} 様</span>
+    {/* 🆕 ここにボタンを追加しました */}
+    <button 
+      onClick={() => {
+        setEditName(userProfile?.display_name || '');
+        setIsEditingName(true);
+      }}
+      style={{ 
+        background: 'rgba(255,255,255,0.2)', 
+        border: 'none', 
+        color: '#fff', 
+        padding: '2px 10px', 
+        borderRadius: '6px', 
+        fontSize: '0.65rem', 
+        cursor: 'pointer',
+        fontWeight: 'bold'
+      }}
+    >
+      名前を変更
+    </button>
+  </div>
+)}
             </h2>
-            
+
             {/* 🗑️ 「あと一歩！」のリンクは自動生成になったので削除しました */}
 
             <div style={{ display: 'flex', gap: '12px', marginTop: '15px' }}>
