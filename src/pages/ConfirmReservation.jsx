@@ -335,7 +335,7 @@ const interval = shop.slot_interval_min || 15;
           existingCust = matched;
         }
       }
-      
+
 // --- 4. 顧客名簿（customers）の保存・更新 ---
       const customerPayload = {
         shop_id: shopId,
@@ -380,7 +380,7 @@ const interval = shop.slot_interval_min || 15;
           reservation_date: targetDate, 
           customer_name: customerData.name,
           customer_phone: customerData.phone || '---',
-          customer_email: customerData.email || 'admin@example.com',
+          customer_email: customerData.email || null,
           zip_code: customerData.zip_code || null,
           // 🆕 ここを start_time と end_time の2つだけに絞ります
           start_time: startDateTime.toISOString(),
