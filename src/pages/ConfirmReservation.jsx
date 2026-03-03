@@ -454,9 +454,15 @@ const interval = shop.slot_interval_min || 15;
           }
         });
       }      
-      alert(isAdminEntry ? '爆速ねじ込み完了！' : '予約が完了しました！');
-      navigate(isAdminEntry ? `/admin/${shopId}/reservations` : '/');
+alert(isAdminEntry ? '爆速ねじ込み完了！' : '予約が完了しました！');
       
+      // 🆕 管理者ねじ込みの場合は、予約を入れた日付(targetDate)をパラメータに付けて戻る
+      if (isAdminEntry) {
+        navigate(`/admin/${shopId}/reservations?date=${targetDate}`);
+      } else {
+        navigate('/');
+      }
+            
     } catch (err) {
       console.error(err);
       alert(`エラーが発生しました: ${err.message}`);
