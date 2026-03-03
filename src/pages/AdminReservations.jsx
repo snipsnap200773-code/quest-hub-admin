@@ -115,7 +115,8 @@ const isPC = windowWidth > 1024;
     };
   };
 
-  useEffect(() => { fetchData(); }, [shopId, startDate]);
+// 🆕 location.search を追加することで、予約完了後にURLが変わった瞬間に再取得が走るようにします
+  useEffect(() => { fetchData(); }, [shopId, startDate, location.search]);
 
   // ✅ ツイン・カレンダー対応版 fetchData
   const fetchData = async () => {
@@ -854,6 +855,15 @@ drag="x"
                         const dStr = getJapanDateStr(date);
                         const resAt = getStatusAt(dStr, time);
                         const isArray = Array.isArray(resAt);
+
+                        // 🆕 判定時間を10秒に延長し、ログを出して確認できるようにします
+                        const isNew = isArray && resAt.some(r => {
+                          if (!r.created_at) return false;
+                          const diff = (new Date().getTime() - new Date(r.created_at).getTime());
+                          const hit = diff < 10000; // 10秒以内
+                          if (hit) console.log("✨ 光る予約を検知！", r.customer_name);
+                          return hit;
+                        });
                         const hasRes = resAt !== null;
                         const firstRes = isArray ? resAt[0] : resAt;
                         const reservationCount = isArray ? resAt.length : 0;
@@ -890,24 +900,25 @@ drag="x"
                                 setShowMenuModal(true); 
                               } 
                             }}
-                            style={{ 
-                              /* 🆕 営業時間外(拡張枠)は背景を少し暗く(#f8fafc)、線を薄く(#e2e8f0)設定 */
-                              borderRight: `${isStandardTime ? '0.1px' : '0.1px'} solid ${isStandardTime ? '#cbd5e1' : '#cbd5e1'}`, 
-                              borderBottom: `${isStandardTime ? '0.1px' : '0.1px'} solid ${isStandardTime ? '#cbd5e1' : '#cbd5e1'}`, 
+style={{ 
+                              borderRight: `${isStandardTime ? '0.1px' : '0.1px'} solid #cbd5e1`, 
+                              borderBottom: `${isStandardTime ? '0.1px' : '0.1px'} solid #cbd5e1`, 
                               position: 'relative', 
                               cursor: 'pointer', 
-                              background: isStandardTime ? '#fff' : '#fffff3' 
+                              background: isStandardTime ? '#fff' : '#fffff3',
+                              // 🆕 td のアニメーションは消してOK
                             }}
                           >
                             {hasRes && !isSystemBlocked && (
                               <div style={{ 
                                 position: 'absolute', inset: 0, zIndex: 5, overflow: 'hidden',
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                /* 🆕 拡張枠内にある予約は、少しだけ透明度を下げる(0.9)などの工夫も可能です */
                                 background: (isRegularHoliday || isBlocked) ? '#f1f5f9' : (isOtherShop ? '#f8fafc' : (isStart ? colors.bg : '#fff')),
-                                borderLeft: (isRegularHoliday || isBlocked) ? 'none' : `2px solid ${isOtherShop ? '#cbd5e1' : colors.line}`
+                                borderLeft: (isRegularHoliday || isBlocked) ? 'none' : `2px solid ${isOtherShop ? '#cbd5e1' : colors.line}`,
+                                // ✅ 修正ポイント：ここに animation を移動！
+                                animation: (isNew && isStart) ? 'flashGold 2s ease-out' : 'none'
                               }}>
-                                {(isRegularHoliday || isBlocked) ? (
+                                                                {(isRegularHoliday || isBlocked) ? (
                                   isStart && <span style={{fontSize:'0.65rem', fontWeight:'bold', color:'#94a3b8'}}>{firstRes.customer_name}</span>
                                 ) : (
                                   isStart ? (
@@ -1407,7 +1418,7 @@ if (startingHere.length === 1) {
                 <button onClick={handleBlockTime} style={{ padding: '15px', background: '#fff', color: themeColor, border: `2px solid ${themeColorLight}`, borderRadius: '20px', fontWeight: 'bold', fontSize: '0.85rem' }}>「✕」または予定</button>
                 <button onClick={handleBlockFullDay} style={{ padding: '15px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '20px', fontWeight: 'bold', fontSize: '0.85rem' }}>今日を休みにする</button>
               </div>
-              <button onClick={() => setShowMenuModal(false)} style={{ padding: '15px', border: 'none', background: 'none', color: '#94a3b8' }}>キャンセル</button>
+<button onClick={() => setShowMenuModal(false)} style={{ padding: '15px', border: 'none', background: 'none', color: '#94a3b8' }}>キャンセル</button>
             </div>
             {!isPC && (
               <button onClick={() => setShowMenuModal(false)} style={{ position: 'fixed', bottom: '30px', left: '50%', transform: 'translateX(-50%)', background: '#1e293b', color: '#fff', border: 'none', padding: '12px 40px', borderRadius: '50px', fontWeight: 'bold', boxShadow: '0 10px 20px rgba(0,0,0,0.3)', zIndex: 4000 }}>閉じる ✕</button>
@@ -1415,7 +1426,28 @@ if (startingHere.length === 1) {
           </div>
         </div>
       )}
-    </div>
+
+      {/* 🆕 追記：予約枠をピカッと光らせるアニメーション */}
+<style>{`
+        @keyframes flashGold {
+          0% { 
+            background-color: #fdd835 !important; /* 強めの黄色 */
+            box-shadow: 0 0 40px #fdd835, inset 0 0 20px #fff; 
+            transform: scale(1.1); /* 少し大きく浮かび上がる */
+            z-index: 100;
+          }
+          70% {
+            transform: scale(1.05);
+          }
+          100% { 
+            /* 最終的には元の色に戻る（アニメーション終了で style の背景色に戻ります） */
+            transform: scale(1);
+            box-shadow: 0 0 0px transparent;
+          }
+        }
+      `}</style>
+      
+    </div> // コンポーネント全体の閉じ
   );
 }
 // 🆕 画面切り替えスイッチ用のスタイル（これを追加してください）
