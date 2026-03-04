@@ -11,17 +11,29 @@ function ShopDetail() {
   // 🆕 特別カテゴリ（識別キー付き）を管理するState
   const [specialCategories, setSpecialCategories] = useState([]);
 
+// 🆕 追記：ユーザーの最新プロフィールを保持する箱 [cite: 2025-12-01]
+  const [userPortalProfile, setUserPortalProfile] = useState(null);
+
   // 🆕 追記：お気に入り状態を管理
   const [isFavorite, setIsFavorite] = useState(false);
   
 useEffect(() => {
     window.scrollTo(0, 0);
 
-    const checkFavoriteStatus = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
+      const checkFavoriteStatus = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
 
-      const { data } = await supabase
+      // 🆕 お気に入りチェックのついでに、ポータルの最新プロフィールも取得 [cite: 2025-12-01]
+      const { data: profile } = await supabase
+        .from('app_users')
+        .select('*')
+        .eq('id', session.user.id)
+        .maybeSingle();
+      
+      if (profile) setUserPortalProfile(profile); // ✅ ここで住所や電話番号がStateに入る
+
+      const { data } = await supabase
         .from('favorites')
         .select('id')
         .eq('shop_id', shopId)
@@ -72,15 +84,19 @@ useEffect(() => {
   const themeColor = shop?.theme_color || '#2563eb';
 
   // ✅ 1. ここから「handleEmailReservation」関数を追加
-  const handleEmailReservation = async () => {
-    // 画面遷移の瞬間に認証セッションを最新にする（リロードと同じ効果）
-    await supabase.auth.getSession();
-    
-    // 認証情報がブラウザにセットされるまで、0.1秒（100ms）だけ待ってから移動
-    setTimeout(() => {
-      navigate(`/shop/${shopId}/reserve`);
-    }, 100);
-  };
+// ✅ 1. handleEmailReservation 関数の修正
+   const handleEmailReservation = async () => {
+    await supabase.auth.getSession();
+    
+    setTimeout(() => {
+      // 🆕 予約画面へ移動する際、authUserProfile として情報を渡す [cite: 2025-12-01]
+      navigate(`/shop/${shopId}/reserve`, { 
+        state: { 
+          authUserProfile: userPortalProfile // ✅ これが ConfirmReservation に届く！
+        } 
+      });
+    }, 100);
+  };
 
   // 🆕 2. お気に入り登録・解除の切り替え関数
 const toggleFavorite = async () => {
@@ -269,8 +285,11 @@ const toggleFavorite = async () => {
                           <ExternalLink size={14} /> 公式サイト
                         </a>
                       )}
-                      <button 
-                        onClick={() => navigate(`/shop/${shopId}/reserve?type=${cat.url_key}`)}
+<button 
+                        // 🆕 navigate の第2引数に state を追加して情報を運ぶ [cite: 2025-12-01]
+                        onClick={() => navigate(`/shop/${shopId}/reserve?type=${cat.url_key}`, {
+                          state: { authUserProfile: userPortalProfile }
+                        })}
                         style={{ 
                           flex: 1, padding: '10px', borderRadius: '10px', border: 'none',
                           background: themeColor, color: '#fff', fontSize: '0.75rem', 
@@ -279,7 +298,7 @@ const toggleFavorite = async () => {
                       >
                         予約ページへ →
                       </button>
-                    </div>
+                      </div>
                   </div>
                 ))}
               </div>
