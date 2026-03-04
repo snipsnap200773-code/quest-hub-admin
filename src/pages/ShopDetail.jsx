@@ -1,19 +1,36 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
-import { MapPin, Phone, MessageCircle, ExternalLink, Mail, ChevronLeft, Info, Home as HomeIcon, Sparkles } from 'lucide-react';
-
+import { MapPin, Phone, MessageCircle, ExternalLink, Mail, ChevronLeft, Info, Home as HomeIcon, Sparkles, Heart } from 'lucide-react';
 function ShopDetail() {
   const { shopId } = useParams();
-  const navigate = useNavigate();
-  const [shop, setShop] = useState(null);
-  const [loading, setLoading] = useState(true);
-  
-  // 🆕 特別カテゴリ（識別キー付き）を管理するState
-  const [specialCategories, setSpecialCategories] = useState([]);
+  const navigate = useNavigate();
+  const [shop, setShop] = useState(null);
+  const [loading, setLoading] = useState(true);
+  
+  // 🆕 特別カテゴリ（識別キー付き）を管理するState
+  const [specialCategories, setSpecialCategories] = useState([]);
 
-  useEffect(() => {
+  // 🆕 追記：お気に入り状態を管理
+  const [isFavorite, setIsFavorite] = useState(false);
+  
+useEffect(() => {
     window.scrollTo(0, 0);
+
+    const checkFavoriteStatus = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const { data } = await supabase
+        .from('favorites')
+        .select('id')
+        .eq('shop_id', shopId)
+        .eq('user_id', session.user.id)
+        .maybeSingle();
+
+      if (data) setIsFavorite(true);
+    };
+
     const fetchShopDetail = async () => {
       setLoading(true);
       // 1. 店舗プロフィールの取得
@@ -40,6 +57,7 @@ function ShopDetail() {
       setLoading(false);
     };
     fetchShopDetail();
+    checkFavoriteStatus();
   }, [shopId]);
 
   if (loading) {
@@ -64,6 +82,33 @@ function ShopDetail() {
     }, 100);
   };
 
+  // 🆕 2. お気に入り登録・解除の切り替え関数
+const toggleFavorite = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return alert("お気に入り登録にはログインが必要です。");
+
+    try {
+      if (isFavorite) {
+        // 解除
+        await supabase.from('favorites').delete().eq('shop_id', shopId).eq('user_id', session.user.id);
+        setIsFavorite(false);
+      } else {
+        // 登録
+        const { error } = await supabase.from('favorites').insert({ shop_id: shopId, user_id: session.user.id });
+        
+        // 🆕 もし「既にあります」というエラー(23505)が出たら、成功扱いにして赤いハートにする
+        if (error && error.code === '23505') {
+          setIsFavorite(true);
+          return;
+        }
+        if (error) throw error;
+        setIsFavorite(true);
+      }
+    } catch (err) {
+      console.error("Favorite Toggle Error:", err);
+    }
+  };
+  
   // ✅ Googleマップ埋め込み用のURL形式
   const googleMapEmbedUrl = shop.address 
     ? `https://maps.google.com/maps?q=${encodeURIComponent(shop.address)}&output=embed`
@@ -129,13 +174,36 @@ function ShopDetail() {
         {/* 基本情報カード */}
         <div style={{ background: '#fff', borderRadius: '24px', padding: '25px', marginTop: '10px', boxShadow: '0 10px 30px rgba(0,0,0,0.08)', position: 'relative' }}>
           {/* ✅ 業種ラベルのカラー連動 */}
-          <div style={{ background: themeColor, color: '#fff', fontSize: '0.7rem', fontWeight: 'bold', padding: '4px 12px', borderRadius: '20px', display: 'inline-block', marginBottom: '10px' }}>
-            {shop.business_type}
+<div style={{ background: themeColor, color: '#fff', fontSize: '0.7rem', fontWeight: 'bold', padding: '4px 12px', borderRadius: '20px', display: 'inline-block', marginBottom: '10px' }}>
+            {shop.business_type}
+          </div>
+          
+          {/* 🆕 タイトルとハートボタンの横並びエリア */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '5px', gap: '15px' }}>
+            <h2 style={{ fontSize: '1.5rem', fontWeight: '900', margin: 0, color: '#1a1a1a', flex: 1, lineHeight: '1.2' }}>
+              {shop.business_name}
+            </h2>
+            <button 
+              onClick={toggleFavorite} 
+              style={{ 
+                background: 'none', 
+                border: 'none', 
+                cursor: 'pointer', 
+                padding: '4px', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                transition: 'transform 0.1s active'
+              }}
+            >
+              <Heart 
+                size={28} 
+                fill={isFavorite ? "#ef4444" : "none"} 
+                color={isFavorite ? "#ef4444" : "#94a3b8"} 
+                style={{ transition: 'all 0.3s ease' }}
+              />
+            </button>
           </div>
-          
-          <h2 style={{ fontSize: '1.5rem', fontWeight: '900', margin: '0 0 5px 0', color: '#1a1a1a' }}>
-            {shop.business_name}
-          </h2>
 
           {/* ✅ サブタイトル（description）の「/」による改行 ＆ カラー連動 */}
           {shop.description && (

@@ -3,8 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 // 🆕 共通マスター（大カテゴリのリスト）をインポート
 import { INDUSTRY_LABELS } from '../constants/industryMaster';
-import { MapPin, User, LogIn, Heart, Calendar, LogOut, X, Mail } from 'lucide-react';
-
+import { MapPin, User, LogIn, Heart, Calendar, LogOut, X, Mail, ChevronRight } from 'lucide-react';
 const profileInputStyle = { width: '100%', padding: '8px', borderRadius: '6px', border: 'none', color: '#333', fontSize: '0.9rem', boxSizing: 'border-box' };
 const profileSmallBtnStyle = { padding: '8px 12px', background: '#fff', color: '#07aadb', border: 'none', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 'bold', cursor: 'pointer' };
 const profileActionBtnStyle = { flex: 1, padding: '10px', borderRadius: '8px', border: 'none', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.85rem' };
@@ -36,9 +35,13 @@ const [isModalOpen, setIsModalOpen] = useState(false);
   const [password, setPassword] = useState('');
   // 🆕 追加：多段登録フロー用
   const [signUpStep, setSignUpStep] = useState('email'); // 'email' | 'otp' | 'password' | 'profile'
-  const [otpCode, setOtpCode] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [phone, setPhone] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  // 🆕 追記：ローカルで生成した6ケタを一時保存する箱
+  const [generatedOtpTemp, setGeneratedOtpTemp] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [phone, setPhone] = useState('');
+  const [regName, setRegName] = useState('');
+  const [activeTabModal, setActiveTabModal] = useState(null);
   const [favorites, setFavorites] = useState([]); 
   const [myHistory, setMyHistory] = useState([]); // 履歴用
 
@@ -128,16 +131,25 @@ if (!insError) {
       }
 
       // 3. 履歴取得（独立したtry-catchで安全に実行）
-      try {
-        const { data: history } = await supabase
-          .from('reservations')
-          .select('*, profiles(business_name)')
-          .eq('customer_email', session.user.email)
-          .order('start_time', { ascending: false });
-        if (history) setMyHistory(history);
-      } catch (hErr) {
-        console.warn("履歴の取得をスキップしました:", hErr);
-      }
+try {
+        // 1. 予約履歴の取得
+        const { data: history } = await supabase
+          .from('reservations')
+          .select('*, profiles(business_name)')
+          .eq('customer_email', session.user.email)
+          .order('start_time', { ascending: false });
+        if (history) setMyHistory(history);
+
+        // 🆕 2. お気に入り店舗の取得（店舗詳細 profiles も結合）
+        const { data: favs } = await supabase
+          .from('favorites')
+          .select('*, profiles(*)')
+          .eq('user_id', session.user.id);
+        if (favs) setFavorites(favs);
+
+      } catch (hErr) {
+        console.warn("データの同期をスキップしました:", hErr);
+      }
 
 } catch (err) {
       console.error("ユーザー同期中にエラーが発生しました:", err);
@@ -218,8 +230,8 @@ if (!insError) {
       setUser(session?.user ?? null);
       
       if (session) {
-        // 🆕 重要：新規登録モード(isSignUpMode)の時は、何があってもモーダルを閉じない
-        if (isSignUpMode) {
+        // 🆕 参照用フラグ(Ref)を見て、登録中ならモーダルを閉じないようにする
+        if (isSignUpModeRef.current) {
           console.log("🛠 登録フロー継続中：モーダルを維持します");
         } else {
           setIsModalOpen(false);
@@ -230,7 +242,7 @@ if (!insError) {
         setMyHistory([]);
       }
     });
-    
+
     return () => {
       clearTimeout(scrollTimer);
       clearInterval(sliderTimer);
@@ -240,65 +252,131 @@ if (!insError) {
 
   // 🆕 ステート
 const [isSignUpMode, setIsSignUpMode] = useState(false);
+  // 🆕 追加：監視役（useEffect）が参照するための最新フラグ
+  const isSignUpModeRef = React.useRef(false);
 
-  // 🆕 1. 新規登録フロー：ステップごとに処理を切り替える
-  const handleSignUpFlow = async (e) => {
-    e.preventDefault();
-    try {
-      if (signUpStep === 'email') {
-        // 【ステップ1】認証コード（OTP）を送信
-        const { error } = await supabase.auth.signInWithOtp({ 
-          email, 
-          options: { shouldCreateUser: true } 
-        });
-        if (error) throw error;
-        setSignUpStep('otp');
-        alert("6ケタの認証コードを送信しました。");
+  // ステートが変わるたびに参照用フラグも更新する
+  useEffect(() => {
+    isSignUpModeRef.current = isSignUpMode;
+  }, [isSignUpMode]);
 
-} else if (signUpStep === 'otp') {
-        const { error } = await supabase.auth.verifyOtp({
-          email,
-          token: otpCode,
-          type: 'email'
-        });
-        if (error) throw error;
+// 🆕 1. 新規登録フロー：自前の Edge Function (Resend) を使用
+  const handleSignUpFlow = async (e) => {
+    e.preventDefault();
+    try {
+      if (signUpStep === 'email') {
+        // 【ステップ1】自前で6ケタの数字を生成して送信
+        const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+        setGeneratedOtpTemp(generatedOtp); // 検証用に保存
 
-        // 認証成功！
-        // 本来はここでマイページに行こうとしますが、
-        // ログインモード(isSignUpMode)が true の間は、モーダルを閉じずに
-        // 次のステップ（パスワード設定）へ強制的に進めます。
-        setSignUpStep('password');
+        // Edge Function 'resend' を呼び出し
+        const { data, error } = await supabase.functions.invoke('resend', {
+          body: { 
+            type: 'signup_otp', 
+            customerEmail: email, 
+            otpCode: generatedOtp 
+          }
+        });
+
+if (error) {
+          console.error("Function Error:", error);
+          throw error;
+        }
+
+        // 🆕 修正ポイント：サーバーからの返答が「文字列」でも「オブジェクト」でも100%見抜く
+        console.log("Server Raw Data:", data);
         
-        // 【重要】もし useEffect などで「ログインしたらモーダルを閉じる」
-        // という処理を入れている場合は、一時的にその動きを止める必要があります。
-        
-      } else if (signUpStep === 'password') {
-        // 【ステップ3】パスワード設定
+        let isSuccess = false;
+        if (typeof data === 'string') {
+          try {
+            const parsed = JSON.parse(data);
+            isSuccess = parsed.success === true;
+          } catch (e) { isSuccess = false; }
+        } else {
+          isSuccess = data?.success === true;
+        }
+
+        if (isSuccess) {
+          // 成功した時だけ次のステップへ進む
+          setSignUpStep('otp');
+          alert("認証コードを @snipsnap.biz から送信しました！");
+        } else {
+          console.error("判定失敗時のデータ:", data);
+          throw new Error("メール送信に失敗しました（サーバーからの返答を確認できません）");
+        }
+
+      } else if (signUpStep === 'otp') {
+
+        // 【ステップ2】ローカルで数字が一致するかチェック
+        if (otpCode === generatedOtpTemp) {
+          setSignUpStep('password');
+        } else {
+          alert("認証コードが一致しません。");
+        }
+        
+      } else if (signUpStep === 'password') {
+        // 【ステップ3】パスワード設定 ＆ Supabaseへの本登録
+        if (password !== confirmPassword) return alert("パスワードが一致しません");
+        if (password.length < 8) return alert("8文字以上で入力してください");
+        
+        // ここで実際に Supabase Auth にアカウントを作成
+        // ※Supabase管理画面で "Confirm email" を OFF にしておくとスムーズです
+        const { error } = await supabase.auth.signUp({ 
+          email, 
+          password 
+        });
+
+        if (error) throw error;
+        setSignUpStep('profile');
+
+} else if (signUpStep === 'password') {
+        // 🔑 【ステップ3】パスワード設定（アカウントの作成）
         if (password !== confirmPassword) return alert("パスワードが一致しません");
         if (password.length < 8) return alert("8文字以上で入力してください");
         
-        const { error } = await supabase.auth.updateUser({ password });
-        if (error) throw error;
-        setSignUpStep('profile');
+        // 🆕 重要：自前OTPで確認済みなので、ここで初めて Auth にユーザーを作ります
+        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({ 
+          email, 
+          password 
+        });
 
-      } else if (signUpStep === 'profile') {
-        // 【ステップ4】電話番号の最終登録
+        if (signUpError) throw signUpError;
+        
+        // 🆕 ユーザーが作成されたら、次の「プロフィール（電話番号）」ステップへ
+        if (signUpData.user) {
+          console.log("👤 ユーザー作成成功:", signUpData.user.id);
+          setSignUpStep('profile');
+        }
+
+} else if (signUpStep === 'profile') {
+        // 📱 【ステップ4】お名前と電話番号の最終登録
+        if (!regName) return alert("お名前を入力してください");
         if (!phone) return alert("電話番号を入力してください");
         
-        // 会員テーブル(app_users)を更新
-        const { error } = await supabase.from('app_users').update({ 
-          phone: phone,
-          updated_at: new Date().toISOString()
-        }).eq('id', user.id);
-        
-        if (error) throw error;
+        const { data: { user: currentUser } } = await supabase.auth.getUser();
+        if (!currentUser) throw new Error("セッションが見つかりません。");
 
-        // 全行程完了！
-        alert("登録が完了しました！");
+        const randomId = `user_${Math.random().toString(36).substring(2, 7)}`;
+
+        const { error: updateError } = await supabase.from('app_users').upsert({ 
+          id: currentUser.id,
+          display_id: randomId,
+          phone: phone,
+          email: currentUser.email,
+          display_name: regName, // 🆕 '新ユーザー' から変更
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'id' });
+        
+        if (updateError) throw updateError;
+
+        alert(`ご登録ありがとうございます、${regName} 様！`);
+        
+        setIsSignUpMode(false); 
         setIsModalOpen(false);
-        setSignUpStep('email'); // 初期状態に戻しておく
-      }
-    } catch (err) {
+        setSignUpStep('email'); 
+        handleSyncUser({ user: currentUser });
+      }      
+        } catch (err) {
       alert("エラーが発生しました: " + err.message);
     }
   };
@@ -488,57 +566,22 @@ const [isSignUpMode, setIsSignUpMode] = useState(false);
       )}
     </h2>
 
-    <div style={{ display: 'flex', gap: '12px', marginTop: '15px' }}>
-      <div style={{ flex: 1, background: 'rgba(255,255,255,0.15)', padding: '12px', borderRadius: '12px', textAlign: 'center' }}>
-        <Calendar size={20} style={{ marginBottom: '4px' }} /><br/><span style={{ fontSize: '0.7rem' }}>予約確認</span>
-      </div>
-      <div style={{ flex: 1, background: 'rgba(255,255,255,0.15)', padding: '12px', borderRadius: '12px', textAlign: 'center' }}>
-        <Heart size={20} style={{ marginBottom: '4px' }} /><br/><span style={{ fontSize: '0.7rem' }}>お気に入り</span>
-      </div>
-    </div>
+<div style={{ display: 'flex', gap: '12px', marginTop: '15px' }}>
+      <div 
+        onClick={() => setActiveTabModal('history')}
+        style={{ flex: 1, background: 'rgba(255,255,255,0.15)', padding: '12px', borderRadius: '12px', textAlign: 'center', cursor: 'pointer' }}
+      >
+        <Calendar size={20} style={{ marginBottom: '4px' }} /><br/><span style={{ fontSize: '0.7rem' }}>予約確認</span>
+      </div>
+      <div 
+        onClick={() => setActiveTabModal('favorites')}
+        style={{ flex: 1, background: 'rgba(255,255,255,0.15)', padding: '12px', borderRadius: '12px', textAlign: 'center', cursor: 'pointer' }}
+      >
+        <Heart size={20} style={{ marginBottom: '4px' }} /><br/><span style={{ fontSize: '0.7rem' }}>お気に入り</span>
+      </div>
+    </div>
   </div>
 )}
-        {/* 🆕 予約履歴（My Journey）セクション */}
-        {user && !isSignUpMode && (
-          <div style={{ marginBottom: '40px' }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', marginBottom: '15px' }}>
-              <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: '900', letterSpacing: '1px', color: '#1a1a1a' }}>My Journey</h3>
-              <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>これまでの利用履歴</span>
-            </div>
-
-            {myHistory.length > 0 ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {myHistory.map((res) => (
-                  <div key={res.id} style={{ background: '#fff', borderRadius: '16px', padding: '16px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
-                    <div>
-                      <div style={{ fontSize: '0.65rem', color: '#07aadb', fontWeight: 'bold', marginBottom: '4px' }}>
-                        {new Date(res.start_time).toLocaleDateString('ja-JP')}
-                      </div>
-                      <div style={{ fontWeight: 'bold', fontSize: '1rem', color: '#1e293b' }}>
-                        {res.profiles?.business_name || '店舗情報なし'}
-                      </div>
-                      <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>
-                        {res.menu_name}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: '1rem', fontWeight: '900', color: '#1e293b' }}>
-                        ¥{res.total_price?.toLocaleString() || 0}
-                      </div>
-                      <span style={{ fontSize: '0.6rem', background: res.status === 'completed' ? '#f1f5f9' : '#ecfdf5', color: res.status === 'completed' ? '#64748b' : '#059669', padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
-                        {res.status === 'completed' ? '来店済み' : '予約中'}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div style={{ padding: '30px', textAlign: 'center', background: '#fff', borderRadius: '16px', color: '#94a3b8', fontSize: '0.85rem', border: '2px dashed #e2e8f0' }}>
-                まだ予約履歴がありません。<br/>新しいサービスを体験して、あなたの物語を始めましょう。
-              </div>
-            )}
-          </div>
-        )}
 
         {/* 3. 最新トピック */}
         {topics.length > 0 && (
@@ -737,22 +780,39 @@ const [isSignUpMode, setIsSignUpMode] = useState(false);
                       </div>
                     )}
 
-                    {signUpStep === 'password' && (
-                      <>
-                        <input type="password" placeholder="新しいパスワード（8文字以上）" value={password} onChange={(e) => setPassword(e.target.value)} style={modalInputStyle} required />
-                        <input type="password" placeholder="パスワード（確認用）" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} style={modalInputStyle} required />
-                        <span style={{ fontSize: '0.65rem', color: '#94a3b8', padding: '0 4px' }}>※英大文字・小文字・数字をすべて含めてください</span>
-                        <button type="submit" style={modalPrimaryBtnStyle}>パスワードを確定して次へ</button>
-                      </>
-                    )}
+{signUpStep === 'password' && (
+                      <>
+                        <input type="password" placeholder="新しいパスワード（8文字以上）" value={password} onChange={(e) => setPassword(e.target.value)} style={modalInputStyle} required />
+                        <input type="password" placeholder="パスワード（確認用）" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} style={modalInputStyle} required />
+                        <span style={{ fontSize: '0.65rem', color: '#94a3b8', padding: '0 4px' }}>※英大文字・小文字・数字をすべて含めてください</span>
+                        <button type="submit" style={modalPrimaryBtnStyle}>パスワードを確定して次へ</button>
+                      </>
+                    )}
 
-                    {signUpStep === 'profile' && (
-                      <>
-                        <input type="tel" placeholder="電話番号（ハイフンなし）" value={phone} onChange={(e) => setPhone(e.target.value.replace(/[^0-9]/g, ''))} style={modalInputStyle} required />
+                    {signUpStep === 'profile' && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        <div>
+                          <label style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 'bold', marginBottom: '4px', display: 'block' }}>お名前</label>
+                          <input type="text" placeholder="例：三土手 太郎" value={regName} onChange={(e) => setRegName(e.target.value)} style={modalInputStyle} required />
+                        </div>
+                        
+                        <div>
+                          <label style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 'bold', marginBottom: '4px', display: 'block' }}>電話番号（ハイフンなし）</label>
+                          <input type="tel" placeholder="09012345678" value={phone} onChange={(e) => setPhone(e.target.value.replace(/[^0-9]/g, ''))} style={modalInputStyle} required />
+                        </div>
+
+                        {/* 🆕 訪問サービス利用者向けのヒント */}
+                        <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                          <p style={{ fontSize: '0.7rem', color: '#64748b', margin: 0, lineHeight: '1.5' }}>
+                            💡 <strong>訪問サービスをご希望の方へ</strong><br />
+                            予約には住所が必要です。登録完了後、マイページの「プロフィール編集」から設定をお願いいたします。
+                          </p>
+                        </div>
+
                         <button type="submit" style={modalPrimaryBtnStyle}>すべての登録を完了する</button>
-                      </>
+                      </div>
                     )}
-                  </>
+                                      </>
                 )}
               </form>
 
@@ -767,12 +827,171 @@ const [isSignUpMode, setIsSignUpMode] = useState(false);
               </div>
 
             </div>
-          </div>
+</div>
+        </div>
+      )}
+
+      {/* 🆕 予約履歴・お気に入り専用ポップアップ */}
+      {activeTabModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 2000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px', backdropFilter: 'blur(8px)' }}>
+          <div style={{ background: '#fff', width: '100%', maxWidth: '480px', borderRadius: '28px', padding: '30px', position: 'relative', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)' }}>
+            
+            {/* 閉じるボタン */}
+            <button onClick={() => setActiveTabModal(null)} style={{ position: 'absolute', top: '20px', right: '20px', background: 'none', border: 'none', cursor: 'pointer' }}>
+              <X size={24} color="#94a3b8" />
+            </button>
+
+            <h3 style={{ fontSize: '1.4rem', fontWeight: '900', color: '#1e293b', marginBottom: '25px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              {activeTabModal === 'history' ? <Calendar size={24} color="#07aadb" /> : <Heart size={24} color="#07aadb" />}
+              {activeTabModal === 'history' ? 'My Journey' : 'My Favorite'}
+            </h3>
+
+            {activeTabModal === 'history' ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {myHistory.length > 0 ? myHistory.map((res) => (
+                  <div key={res.id} style={{ background: '#f8fafc', borderRadius: '16px', padding: '16px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '0.65rem', color: '#07aadb', fontWeight: 'bold' }}>{new Date(res.start_time).toLocaleDateString('ja-JP')}</div>
+                      <div style={{ fontWeight: 'bold', fontSize: '1rem', margin: '2px 0' }}>{res.profiles?.business_name}</div>
+                      <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{res.menu_name}</div>
+                    </div>
+                    {/* 🆕 リピート予約ボタン（お店の予約画面へ直接リンク） */}
+                    <Link 
+                      to={`/shop/${res.profiles?.id}/reserve`} 
+                      style={{ textDecoration: 'none', background: '#07aadb', color: '#fff', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 'bold', marginLeft: '10px', boxShadow: '0 4px 6px rgba(7, 170, 219, 0.2)' }}
+                    >
+                      予約
+                    </Link>
+                  </div>
+                )) : (
+                  <p style={{ textAlign: 'center', color: '#94a3b8', padding: '40px 0' }}>まだ履歴はありません</p>
+                )}
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '60px 0', color: '#94a3b8' }}>
+                <Heart size={48} style={{ opacity: 0.1, marginBottom: '15px' }} />
+                <p style={{ fontSize: '0.85rem' }}>お気に入りの店舗は<br/>まだ登録されていません</p>
+              </div>
+            )}
+</div>
+        </div>
+      )}
+
+      {/* 🆕 ここから追記：予約履歴・お気に入り専用ポップアップモーダル */}
+      {activeTabModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 2000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px', backdropFilter: 'blur(8px)' }}>
+          <div style={{ background: '#fff', width: '100%', maxWidth: '480px', borderRadius: '28px', padding: '30px', position: 'relative', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)' }}>
+            
+            {/* 閉じるボタン */}
+            <button onClick={() => setActiveTabModal(null)} style={{ position: 'absolute', top: '20px', right: '20px', background: 'none', border: 'none', cursor: 'pointer' }}>
+              <X size={24} color="#94a3b8" />
+            </button>
+
+            <h3 style={{ fontSize: '1.4rem', fontWeight: '900', color: '#1e293b', marginBottom: '25px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              {activeTabModal === 'history' ? <Calendar size={24} color="#07aadb" /> : <Heart size={24} color="#07aadb" />}
+              {activeTabModal === 'history' ? 'My Journey' : 'My Favorite'}
+            </h3>
+
+            {activeTabModal === 'history' ? (
+              /* --- A. 予約履歴の一覧表示 --- */
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {myHistory.length > 0 ? myHistory.map((res) => (
+                  <div key={res.id} style={{ background: '#f8fafc', borderRadius: '16px', padding: '16px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '0.65rem', color: '#07aadb', fontWeight: 'bold' }}>{new Date(res.start_time).toLocaleDateString('ja-JP')}</div>
+                      <div style={{ fontWeight: 'bold', fontSize: '1rem', margin: '2px 0' }}>{res.profiles?.business_name}</div>
+                      <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{res.menu_name}</div>
+                    </div>
+                    {/* リピート予約用リンク */}
+                    <Link 
+                      to={`/shop/${res.profiles?.id}/reserve`} 
+                      style={{ textDecoration: 'none', background: '#07aadb', color: '#fff', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 'bold', marginLeft: '10px' }}
+                    >
+                      予約
+                    </Link>
+                  </div>
+                )) : <p style={{ textAlign: 'center', color: '#94a3b8', padding: '40px 0' }}>履歴はありません</p>}
+              </div>
+) : (
+              /* --- B. お気に入り店舗の一覧表示（カード全体タップ対応） --- */
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {favorites.length > 0 ? favorites.map((fav) => (
+                  <Link 
+                    key={fav.id} 
+                    to={`/shop/${fav.profiles?.id}/detail`} 
+                    style={{ textDecoration: 'none', color: 'inherit' }}
+                    onClick={() => setActiveTabModal(null)} // 🆕 遷移時にポップアップを閉じる
+                  >
+                    <div style={{ 
+                      background: '#fff', 
+                      borderRadius: '16px', 
+                      padding: '12px', 
+                      border: '1px solid #f1f5f9', 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: '12px',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease', // 🆕 動きを滑らかに
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                    }}
+                    // 🆕 タップした時に少し沈む演出
+                    onMouseDown={(e) => e.currentTarget.style.transform = 'scale(0.98)'}
+                    onMouseUp={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                    >
+{fav.profiles?.image_url ? (
+  <img 
+    src={fav.profiles.image_url} 
+    style={{ width: '60px', height: '60px', borderRadius: '12px', objectFit: 'cover' }} 
+    alt={fav.profiles.business_name}
+  />
+) : (
+  <div style={{ 
+    width: '60px', 
+    height: '60px', 
+    borderRadius: '12px', 
+    background: '#f1f5f9', 
+    display: 'flex', 
+    alignItems: 'center', 
+    justifyContent: 'center',
+    fontSize: '0.5rem',
+    color: '#cbd5e1',
+    fontWeight: 'bold',
+    textAlign: 'center',
+    padding: '4px'
+  }}>
+    NO<br/>IMAGE
+  </div>
+)}
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: '900', fontSize: '1rem', color: '#1e293b', marginBottom: '2px' }}>
+                          {fav.profiles?.business_name}
+                        </div>
+                        <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 'bold' }}>
+                          {fav.profiles?.business_type}
+                        </div>
+                      </div>
+                      {/* 🆕 右矢印を追加して「押せること」を視覚的に伝える */}
+                      <div style={{ color: '#cbd5e1' }}>
+                        <ChevronRight size={20} />
+                      </div>
+                    </div>
+                  </Link>
+                )) : (
+                  <div style={{ textAlign: 'center', padding: '40px 0', color: '#94a3b8' }}>
+                    <Heart size={48} style={{ opacity: 0.1, marginBottom: '15px' }} />
+                    <p style={{ fontSize: '0.85rem' }}>お気に入りのお店は<br/>まだ登録されていません</p>
+                  </div>
+                )}
+              </div>
+            )}
+                      </div>
         </div>
       )}
-      <div style={{ padding: '60px 20px', textAlign: 'center', color: '#cbd5e1', fontSize: '0.7rem' }}>
-        <p>© 2026 Solopreneur Portal SOLO</p>
-      </div>
+      {/* 🆕 追記ここまで */}
+
+      <div style={{ padding: '60px 20px', textAlign: 'center', color: '#cbd5e1', fontSize: '0.7rem' }}>
+        <p>© 2026 Solopreneur Portal SOLO</p>
+      </div>
     </div>
   );
 }

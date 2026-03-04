@@ -3,9 +3,9 @@ import { createClient } from 'jsr:@supabase/supabase-js@2'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  // 🆕 x-shop-id を追記（これがないとブラウザがエラーを出します）
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-shop-id',
 }
-
 // LINE通知用の定数
 const LINE_PUSH_URL = "https://api.line.me/v2/bot/message/push";
 
@@ -181,17 +181,57 @@ const mRes = await fetch('https://api.resend.com/emails', {
           }
         }
 
-        // 送信処理（LINEまたはメール）が終わった後に1回だけDBを更新
-        await supabaseAdmin.from('reservations').update({ remind_sent: true }).eq('id', res.id);
-        report.push({ id: res.id, email: mailOk, line: lineOk });
-      } // ここでループ終了
-      
-  return new Response(JSON.stringify({ report }), { status: 200, headers: corsHeaders });
+// 送信処理（LINEまたはメール）が終わった後に1回だけDBを更新
+        await supabaseAdmin.from('reservations').update({ remind_sent: true }).eq('id', res.id);
+        report.push({ id: res.id, email: mailOk, line: lineOk });
+      } // ここでループ終了
+      
+  return new Response(JSON.stringify({ report }), { status: 200, headers: corsHeaders });
 }
 
-    // ==========================================
-    // 🚀 パターンA：店主様への歓迎メール ＆ 三土手さんへの通知送信 (本家ロジック完全維持)
-    // ==========================================
+// 🆕 ここから追記：パターンF（新規登録用OTP）
+if (type === 'signup_otp') {
+  const { otpCode } = payload; // Home.jsx側で作った数字を受け取る
+  
+  const subject = `【SOLO】認証コード：${otpCode}`;
+  const html = `
+    <div style="font-family: sans-serif; color: #333; line-height: 1.6; max-width: 500px; margin: 0 auto; border: 1px solid #e2e8f0; padding: 25px; border-radius: 12px;">
+      <h2 style="color: #07aadb; margin-top: 0;">ご登録ありがとうございます</h2>
+      <p>本人確認のため、以下の認証コードを画面に入力してください。</p>
+      <div style="background: #f8fafc; padding: 20px; text-align: center; border-radius: 10px; border: 1px solid #e2e8f0; margin: 20px 0;">
+        <span style="font-size: 2rem; font-weight: 900; letter-spacing: 10px; color: #1e293b;">${otpCode}</span>
+      </div>
+      <p style="font-size: 0.8rem; color: #64748b;">※このコードの有効期限は10分間です。</p>
+    </div>`;
+
+const otpRes = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_API_KEY}` },
+    body: JSON.stringify({ 
+      from: 'SOLO 運営事務局 <infec@snipsnap.biz>', 
+      to: [customerEmail], 
+      subject, 
+      html 
+    })
+  });
+
+  // ResendからのレスポンスをJSONとして解析
+  const resData = await otpRes.json();
+
+  // 🆕 status 200番台なら成功として、ブラウザが使いやすいJSONを返す
+  return new Response(JSON.stringify({ 
+    success: otpRes.ok, 
+    data: resData 
+  }), { 
+    status: 200, 
+    headers: corsHeaders 
+  });
+}
+// 🆕 追記ここまで
+
+    // ==========================================
+    // 🚀 パターンA：店主様への歓迎メール ＆ 三土手さんへの通知送信 (本家ロジック完全維持)
+    // ==========================================
     if (type === 'welcome') {
       const welcomeRes = await fetch('https://api.resend.com/emails', {
         method: 'POST',
