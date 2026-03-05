@@ -460,22 +460,38 @@ const interval = shop.slot_interval_min || 15;
         }
       ]);
 
-      if (dbError) throw dbError;
+if (dbError) throw dbError;
 
-      // 通知の送信
-// ✅ 修正ポイント：宛先メールアドレスと詳細データをすべて backend へ送る
-// 通知の送信
+      // 🆕 1. 来店回数の計算ロジックをここで実行 [cite: 2025-12-01]
+      let visitCount = 1; 
+      if (finalCustomerId) {
+        // キャンセル以外の予約をカウント [cite: 2025-12-01]
+        const { count, error: countError } = await supabase
+          .from('reservations')
+          .select('*', { count: 'exact', head: true })
+          .eq('customer_id', finalCustomerId)
+          .neq('status', 'cancelled');
+
+        if (!countError) {
+          // 過去の回数 + 今回の1回 [cite: 2026-03-05]
+          visitCount = (count || 0) + 1;
+        }
+      }
+
+      // 🆕 2. 通知用の名前を「本名 ＋ 回数」に組み立てる [cite: 2026-03-05]
+      const repeatLabel = `(${visitCount}回目の来店)`;
+      const displayNameForEmail = (existingCust && existingCust.name) 
+                                    ? `${existingCust.name} ${repeatLabel}` 
+                                    : `${customerData.name} ${repeatLabel}`;
+
+      // 通知の送信
       if (!isAdminEntry) {
-        // 🆕 名簿(existingCust)に名前があればそちらを、なければ入力された名前(customerData.name)を使用
-        const displayNameForEmail = (existingCust && existingCust.name) 
-                                      ? existingCust.name 
-                                      : customerData.name;
-
         await supabaseAnon.functions.invoke('resend', {
           body: {
             type: 'booking', 
             shopId,
-            customerName: displayNameForEmail, // ✅ 書き換えられた名前を送る
+            // 🆕 3. 組み立てた名前を customerName にセット [cite: 2026-03-05]
+            customerName: displayNameForEmail, 
             staffName: finalStaffName || staffName,
             shopName: customShopName || shop.business_name, // 🆕 追加
             startTime: `${targetDate.replace(/-/g, '/')} ${targetTime}`,
