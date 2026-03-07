@@ -48,7 +48,7 @@ const fetchTodayTasks = async () => {
       // ✅ 肉付け：カレンダー同様、顧客マスタ側の最新名（admin_name含む）も一緒に取得します [cite: 2026-03-06]
       .select('*, customers(name, admin_name)') 
       .eq('shop_id', shopId)
-      .gte('start_time', startOfToday)
+      .or(`start_time.gte.${startOfToday},start_at.gte.${startOfToday}`)
       .lte('start_time', endOfToday)
       .in('status', ['confirmed', 'completed'])
       .order('start_time', { ascending: true });
@@ -130,7 +130,10 @@ const fetchTodayTasks = async () => {
                 <div style={{ flex: 1 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
                     <Clock size={16} color={themeColor} />
-                    <span style={{ fontWeight: 'bold', fontSize: '1.1rem', color: '#1e293b' }}>{task.start_time} 〜</span>
+<span style={{ fontWeight: 'bold', fontSize: '1.1rem', color: '#1e293b' }}>
+  {/* ✅ 修正：start_time が NULL なら start_at を使う [cite: 2026-03-01] */}
+  {new Date(task.start_time || task.start_at).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })} 〜
+</span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#475569' }}>
                     <User size={16} />
