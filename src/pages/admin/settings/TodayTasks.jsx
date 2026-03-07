@@ -38,26 +38,29 @@ const TodayTasks = () => {
 const fetchTodayTasks = async () => {
     setLoading(true);
     
-    // ✅ 修正：'date' カラムではなく 'start_time' の「今日の開始〜終了」で範囲検索します [cite: 2026-03-01]
-    const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).toISOString();
-    
+    // ✅ 日本時間の今日の日付（2026-03-07）をベースに範囲を作成 [cite: 2026-03-01]
+    const todayStr = new Date().toLocaleDateString('sv-SE'); 
+    const startOfToday = `${todayStr}T00:00:00.000Z`; 
+    const endOfToday = `${todayStr}T23:59:59.999Z`;
+
     const { data, error } = await supabase
       .from('reservations')
-      // ✅ 肉付け：カレンダー同様、顧客マスタ側の最新名（admin_name含む）も一緒に取得します [cite: 2026-03-06]
       .select('*, customers(name, admin_name)') 
       .eq('shop_id', shopId)
-      .or(`start_time.gte.${startOfToday},start_at.gte.${startOfToday}`)
-      .lte('start_time', endOfToday)
+      // ✅ 修正ポイント：start_time か start_at、どちらかが「今日の範囲内」なら取得する [cite: 2026-03-01]
+      // or の中で and 条件（gte かつ lte）を2パターン記述します
+      .or(`and(start_time.gte.${startOfToday},start_time.lte.${endOfToday}),and(start_at.gte.${startOfToday},start_at.lte.${endOfToday})`)
       .in('status', ['confirmed', 'completed'])
       .order('start_time', { ascending: true });
 
-    if (!error) setTasks(data || []);
-    else console.error("取得エラー:", error.message);
+    if (!error) {
+      setTasks(data || []);
+    } else {
+      console.error("取得エラー:", error.message);
+    }
     setLoading(false);
   };
-
+  
   const showMsg = (txt) => { setMessage(txt); setTimeout(() => setMessage(''), 3000); };
 
   // 🚀 汎用トリガー：サービス完了処理
