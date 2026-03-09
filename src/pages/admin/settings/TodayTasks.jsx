@@ -84,16 +84,17 @@ const fetchTodayTasks = async () => {
     const day = String(now.getDate()).padStart(2, '0');
     const todayStr = `${year}-${month}-${day}`; // "2026-03-08"
 
-    const { data, error } = await supabase
+const { data, error } = await supabase
       .from('reservations')
       .select('*, customers(name, admin_name)') 
       .eq('shop_id', shopId)
       // 🆕 2. 文字列の「T」を抜いて、DBの timestamp 形式に合わせる [cite: 2026-03-08]
       .gte('start_time', `${todayStr} 00:00:00`)
       .lte('start_time', `${todayStr} 23:59:59`)
-      .in('status', ['confirmed', 'completed'])
+      // 💡 修正：ステータス制限を外し、AdminManagementと同じく'normal'予約ならすべて表示します [cite: 2026-03-08]
+      .eq('res_type', 'normal') 
       .order('start_time', { ascending: true });
-
+      
     // 💡 修正後のログ確認用
     console.log(`[デバッグ] 検索日付: ${todayStr} / 取得件数: ${data?.length || 0}`);
 
