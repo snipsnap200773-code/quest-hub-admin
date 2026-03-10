@@ -422,20 +422,54 @@ const handleSaveMemo = async () => {
         </div>
       )}
 
-<div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '30px' }}>
-        {/* ✅ 修正：ダッシュボードではなく「カレンダー画面」へ直接戻ります [cite: 2026-03-06] */}
-        <button 
-          onClick={() => navigate(`/admin/${shopId}/reservations`)} 
-          style={{ background: '#fff', border: '1px solid #e2e8f0', padding: '10px', borderRadius: '50%', cursor: 'pointer', color: '#64748b', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}
-        >
-          <ArrowLeft size={20} />
-        </button>
-        <div>
-          <h2 style={{ margin: 0, fontSize: '1.4rem', color: '#1e293b' }}>今日のタスク</h2>
-          <p style={{ margin: 0, fontSize: '0.7rem', color: '#94a3b8' }}>← カレンダーへ戻る</p>
-        </div>
-      </div>
-      
+<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', flexWrap: 'wrap', gap: '15px' }}>
+  <div>
+    <h2 style={{ margin: 0, fontSize: '1.4rem', color: '#1e293b', fontWeight: '900' }}>⚡ 今日のタスク</h2>
+    <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>現場実行 ＆ POSレジ</p>
+  </div>
+
+  {/* ✅ 帰り道スイッチ：現場から管理画面へ戻る導線 */}
+  <div style={{ display: 'flex', background: '#f1f5f9', padding: '4px', borderRadius: '12px', gap: '4px' }}>
+    <button 
+      onClick={() => navigate(`/admin/${shopId}/reservations`)}
+      style={{
+        padding: '8px 12px',
+        background: '#fff',
+        border: '1px solid #e2e8f0',
+        borderRadius: '8px',
+        fontSize: '0.75rem',
+        fontWeight: 'bold',
+        color: '#475569',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '4px',
+        boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+      }}
+    >
+      <Calendar size={14} /> 📅 カレンダーへ
+    </button>
+    <button 
+      onClick={() => navigate(`/admin/${shopId}/timeline`)}
+      style={{
+        padding: '8px 12px',
+        background: '#fff',
+        border: '1px solid #e2e8f0',
+        borderRadius: '8px',
+        fontSize: '0.75rem',
+        fontWeight: 'bold',
+        color: '#4b2c85', // Timelineのテーマ色
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '4px',
+        boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+      }}
+    >
+      <Clock size={14} /> 🕒 タイムラインへ
+    </button>
+  </div>
+</div>      
       <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
         {tasks.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px', background: '#f8fafc', borderRadius: '20px', color: '#64748b' }}>

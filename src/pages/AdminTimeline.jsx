@@ -83,7 +83,7 @@ const [selectedCustomer, setSelectedCustomer] = useState(null);
     // 3. 予約データ取得（担当者名結合）
 const { data: resData } = await supabase
       .from('reservations')
-      .select('*, staffs(name), customers(name, admin_name)')
+      .select('*, staffs(name), customers(*)')
       .eq('shop_id', shopId)
       .gte('start_time', `${selectedDate}T00:00:00`)
       .lte('start_time', `${selectedDate}T23:59:59`);
@@ -93,16 +93,28 @@ const { data: resData } = await supabase
   };
 
 // 🆕 1. スカウター発動：予約をタップした瞬間に重複を検知
-  const openDetail = async (res) => {
-    setSelectedRes(res);
-    setTargetStaffId(res.staff_id);
+const openDetail = async (res) => {
+  setSelectedRes(res);
+  setTargetStaffId(res.staff_id);
 
-    // 🔍 【スカウター】電話番号またはメールで既存客をガサ入れ
+  let cust = null;
+
+  // 🆕 修正点：まず、予約データに紐付いている顧客IDがあるか確認
+  if (res.customer_id) {
+    const { data: matched } = await supabase
+      .from('customers')
+      .select('*')
+      .eq('id', res.customer_id)
+      .maybeSingle();
+    cust = matched;
+  }
+
+  // もしIDでヒットしなかった場合のみ、既存のスカウター（電話・メール検索）を回す
+  if (!cust) {
     const orConditions = [];
     if (res.customer_phone && res.customer_phone !== '---') orConditions.push(`phone.eq.${res.customer_phone}`);
     if (res.customer_email) orConditions.push(`email.eq.${res.customer_email}`);
 
-    let cust = null;
     if (orConditions.length > 0) {
       const { data: matched } = await supabase
         .from('customers')
@@ -112,9 +124,11 @@ const { data: resData } = await supabase
         .maybeSingle();
       cust = matched;
     }
+  }
 
-    // 判定：連絡先は一致するが、紐付いているIDが違う（名寄せが必要）
-    if (cust && cust.id !== res.customer_id) {
+  // 判定：連絡先は一致するが、紐付いているIDが違う（名寄せが必要）
+  if (cust && cust.id !== res.customer_id) {
+    // ...以下、マージ確認ロジックへ
       setMergeCandidate(cust); 
       setShowMergeConfirm(true); 
       return; 
@@ -178,37 +192,62 @@ const { data: resData } = await supabase
   };
 
   // --- 顧客情報の更新 ---
-  const handleUpdateCustomer = async () => {
-    try {
-      const payload = {
-        shop_id: shopId,
-        name: editFields.name,
-        phone: editFields.phone || null,
-        email: editFields.email || null,
-        memo: editFields.memo || null,
-        line_user_id: editFields.line_user_id || null,
-        updated_at: new Date().toISOString()
-      };
-      if (selectedCustomer) payload.id = selectedCustomer.id;
-
-      const { error: custError } = await supabase.from('customers').upsert(payload);
-      if (custError) throw custError;
-
-      const { error: resError } = await supabase.from('reservations').update({ 
-        customer_name: editFields.name,
-        customer_phone: editFields.phone,
-        staff_id: selectedRes.staff_id // 変更後のスタッフIDで更新
-      }).eq('id', selectedRes.id);
-      if (resError) throw resError;
-
-      alert('情報を更新しました！');
-      setShowDetailModal(false);
-      fetchData();
-    } catch (err) {
-      alert('更新に失敗しました: ' + err.message);
+const handleUpdateCustomer = async () => {
+  try {
+    // 🔍 ステップ1：名前の正規化
+    const normalizedName = editFields.name.replace(/　/g, ' ').trim();
+    if (!normalizedName) {
+      alert("お名前を入力してください。");
+      return;
     }
-  };
 
+    let targetCustomerId = selectedCustomer?.id;
+
+    // 🔍 ステップ2：顧客情報の準備
+    const customerPayload = {
+      shop_id: shopId,
+      name: normalizedName,
+      admin_name: editFields.admin_name || normalizedName,
+      phone: editFields.phone || null,
+      email: editFields.email || null,
+      memo: editFields.memo || null, // 👈 メモはここに集約！
+      line_user_id: editFields.line_user_id || null,
+      updated_at: new Date().toISOString()
+    };
+
+    if (targetCustomerId) customerPayload.id = targetCustomerId;
+
+    // 🔍 ステップ3：顧客マスタ（customers）を更新
+    const { data: savedCust, error: custError } = await supabase
+      .from('customers')
+      .upsert(customerPayload, { onConflict: 'id' })
+      .select()
+      .single();
+    
+    if (custError) throw custError;
+    targetCustomerId = savedCust.id;
+
+    // 🔍 ステップ4：予約データ（reservations）を更新してガッチリ紐付け
+    const { error: resError } = await supabase
+      .from('reservations')
+      .update({ 
+        customer_name: normalizedName,
+        customer_phone: editFields.phone,
+        customer_id: targetCustomerId, // 👈 IDを紐付ける
+        staff_id: selectedRes.staff_id,
+        memo: null // 👈 予約側のメモは一本化のため空にする
+      })
+      .eq('id', selectedRes.id);
+
+    if (resError) throw resError;
+
+    alert('情報を名簿に保存し、予約と紐付けました！✨');
+    setShowDetailModal(false);
+    fetchData();
+  } catch (err) {
+    alert('更新に失敗しました: ' + err.message);
+  }
+};
   // --- 予約の削除 ---
   const deleteRes = async (id) => {
     if (window.confirm('この予約データを消去して予約を「可能」に戻しますか？')) {
@@ -327,32 +366,55 @@ const handleCellClick = (slotMatches, time, staffId) => { // ✅ 引数を変更
           
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <div style={{ display: 'flex', background: '#f1f5f9', padding: '3px', borderRadius: '8px' }}>
-              <button onClick={() => navigate(`/admin/${shopId}/reservations`)} style={switchBtnStyle(false)}>カレンダー</button>
-              <button style={switchBtnStyle(true)}>タイムライン</button>
-            </div>
+  <button onClick={() => navigate(`/admin/${shopId}/reservations`)} style={switchBtnStyle(false)}>カレンダー</button>
+  <button style={switchBtnStyle(true)}>タイムライン</button>
+</div>
 
-            {/* 🆕 顧客・売上管理へのショートカットボタン */}
-            <button 
-              onClick={() => shop?.is_management_enabled && navigate(`/admin/${shopId}/management`)}
-              style={{
-                padding: '6px 15px',
-                borderRadius: '8px',
-                border: '1px solid #e2e8f0',
-                background: shop?.is_management_enabled ? '#fff' : '#f1f5f9',
-                fontSize: '0.75rem',
-                fontWeight: 'bold',
-                cursor: shop?.is_management_enabled ? 'pointer' : 'not-allowed',
-                color: shop?.is_management_enabled ? '#008000' : '#94a3b8',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '5px',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
-                transition: 'all 0.2s'
-              }}
-            >
-              {shop?.is_management_enabled ? '📊 顧客・売上管理' : '🔒 売上管理'}
-            </button>
-          </div>
+{/* ✅ 🆕 追加：現場での実行用「今日のタスク」ボタン */}
+<button 
+  onClick={() => navigate(`/admin/${shopId}/today-tasks`)}
+  style={{
+    padding: '6px 15px',
+    background: '#1e293b', // カレンダー/タイムラインと差別化
+    color: '#fff',
+    border: 'none',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    fontWeight: 'bold',
+    fontSize: '0.75rem',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+    marginLeft: '10px'
+  }}
+>
+  ⚡ 本日のタスク (実行)
+</button>
+
+{/* 📊 顧客・売上管理ボタン（既存） */}
+<button 
+  onClick={() => shop?.is_management_enabled && navigate(`/admin/${shopId}/management`)}
+  style={{
+    padding: '6px 15px',
+    borderRadius: '8px',
+    border: '1px solid #e2e8f0',
+    background: shop?.is_management_enabled ? '#fff' : '#f1f5f9',
+    fontSize: '0.75rem',
+    fontWeight: 'bold',
+    cursor: shop?.is_management_enabled ? 'pointer' : 'not-allowed',
+    color: shop?.is_management_enabled ? '#008000' : '#94a3b8',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '5px',
+    boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+    transition: 'all 0.2s',
+    marginLeft: '10px' // ボタン間の隙間
+  }}
+>
+  {shop?.is_management_enabled ? '📊 顧客・売上管理' : '🔒 売上管理'}
+</button>
+        </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center', cursor: 'pointer', padding: '5px' }}>
