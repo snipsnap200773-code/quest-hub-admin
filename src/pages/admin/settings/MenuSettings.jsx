@@ -124,20 +124,20 @@ const fetchMenuDetails = async () => {
   };
 const showMsg = (txt) => { setMessage(txt); setTimeout(() => setMessage(''), 3000); };
 
-  /* ==========================================
-      🆕 修正：全マスタ対応・データ欠損なしの並び替え関数
+/* ==========================================
+      🆕 修正：フリーズしない「交換式」の並び替え関数 [cite: 2026-03-08]
      ========================================== */
   const moveItem = async (type, list, id, direction) => {
     const idx = list.findIndex(item => item.id === id);
     const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+    
+    // 移動先がない場合は何もしない
     if (targetIdx < 0 || targetIdx >= list.length) return;
 
-    // リスト内での位置を入れ替え
-    const newList = [...list];
-    const [moved] = newList.splice(idx, 1);
-    newList.splice(targetIdx, 0, moved);
+    const itemA = list[idx];       // 動かしたい項目
+    const itemB = list[targetIdx]; // 入れ替え相手
 
-    // 💡 テーブル名の判定を調整項目(adjustment)と店販(product)に広げました [cite: 2026-03-08]
+    // 💡 テーブル名の判定 [cite: 2026-03-08]
     const tableMap = {
       category: 'service_categories',
       service: 'services',
@@ -146,19 +146,23 @@ const showMsg = (txt) => { setMessage(txt); setTimeout(() => setMessage(''), 300
     };
     const table = tableMap[type] || 'services';
 
-    // 💡 重要：...item で元の全データを保持して送ることで 400 エラーを防ぎます
-    const updates = newList.map((item, i) => ({ 
-      ...item, 
-      sort_order: i 
-    }));
+    try {
+      // 💡 重要：全体を振り直さず、AとBの sort_order を「入れ替える」だけにする [cite: 2026-03-08]
+      // これにより 400 Bad Request などの衝突エラーを物理的に回避します
+      const updates = [
+        { ...itemA, sort_order: itemB.sort_order },
+        { ...itemB, sort_order: itemA.sort_order }
+      ];
 
-    const { error } = await supabase.from(table).upsert(updates);
+      const { error } = await supabase.from(table).upsert(updates);
 
-    if (!error) {
-      fetchMenuDetails(); // 成功したら再読み込みして順番を反映
-    } else {
-      console.error("並び替えエラー:", error.message);
-      alert("並び替えに失敗しました。");
+      if (error) throw error;
+      
+      // 成功したら画面を更新
+      fetchMenuDetails();
+    } catch (err) {
+      console.error("並び替えエラー:", err.message);
+      alert("並び替えができませんでした。一度ページを更新してください。");
     }
   };
 
@@ -544,7 +548,7 @@ showMsg(editingOptionId ? '枝メニューを更新しました' : '枝メニュ
         {categories.map((cat) => (
           <div key={cat.id} style={{ marginBottom: '30px' }}>
             <h4 style={{ color: '#64748b', fontSize: '0.85rem', marginBottom: '12px', borderLeft: `4px solid ${themeColor}`, paddingLeft: '10px', fontWeight: 'bold' }}>{cat.name}</h4>
-            {services.filter(s => s.category === cat.name).map((s) => (
+            {services.filter(s => s.category === cat.name).map((s, idx, filteredList) => (
               <div key={s.id} style={{ ...cardStyle, marginBottom: '12px', border: activeServiceForOptions?.id === s.id ? `2px solid ${themeColor}` : '1px solid #e2e8f0' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
 <div style={{ flex: 1 }}>
@@ -556,10 +560,22 @@ showMsg(editingOptionId ? '枝メニューを更新しました' : '枝メニュ
                       <div style={{ fontSize: '0.8rem', color: '#d34817', fontWeight: 'bold' }}>¥{(s.price || 0).toLocaleString()}</div>
                     </div>
                   </div>
-                                    <div style={{ display: 'flex', gap: '8px' }}>
+                    <div style={{ display: 'flex', gap: '8px' }}>
                     <button onClick={() => setActiveServiceForOptions(activeServiceForOptions?.id === s.id ? null : s)} style={{ padding: '6px 12px', background: activeServiceForOptions?.id === s.id ? themeColor : '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 'bold', color: activeServiceForOptions?.id === s.id ? '#fff' : '#475569', cursor: 'pointer' }}>枝</button>
-                    <button onClick={() => moveItem('service', services.filter(ser => ser.category === cat.name), s.id, 'up')} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '4px' }}><ArrowUp size={16} /></button>
-                    <button onClick={() => moveItem('service', services.filter(ser => ser.category === cat.name), s.id, 'down')} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '4px' }}><ArrowDown size={16} /></button>
+<button 
+  onClick={() => moveItem('service', filteredList, s.id, 'up')} 
+  disabled={idx === 0} 
+  style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '4px', opacity: idx === 0 ? 0.3 : 1, cursor: idx === 0 ? 'not-allowed' : 'pointer' }}
+>
+  <ArrowUp size={16} />
+</button>
+<button 
+  onClick={() => moveItem('service', filteredList, s.id, 'down')} 
+  disabled={idx === filteredList.length - 1} 
+  style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '4px', opacity: idx === filteredList.length - 1 ? 0.3 : 1, cursor: idx === filteredList.length - 1 ? 'not-allowed' : 'pointer' }}
+>
+  <ArrowDown size={16} />
+</button>
 <button 
                       onClick={() => { 
                         setEditingServiceId(s.id); 
@@ -670,21 +686,24 @@ showMsg(editingOptionId ? '枝メニューを更新しました' : '枝メニュ
             </button>
           </form>
 
-          {/* 🆕 追加：商品カテゴリの一覧と並び替えボタン [cite: 2026-03-08] */}
+{/* 🆕 商品カテゴリの一覧 [cite: 2026-03-08] */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {productCategories.map((c, idx) => (
               <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', padding: '10px 15px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
                 <span style={{ fontSize: '0.9rem', fontWeight: 'bold', color: '#1e293b' }}>{c.name}</span>
                 <div style={{ display: 'flex', gap: '6px' }}>
-                  <button onClick={() => moveItem('category', productCategories, c.id, 'up')} disabled={idx === 0} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '4px', cursor: idx === 0 ? 'not-allowed' : 'pointer', opacity: idx === 0 ? 0.3 : 1 }}><ArrowUp size={16} /></button>
-                  <button onClick={() => moveItem('category', productCategories, c.id, 'down')} disabled={idx === productCategories.length - 1} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '4px', cursor: idx === productCategories.length - 1 ? 'not-allowed' : 'pointer', opacity: idx === productCategories.length - 1 ? 0.3 : 1 }}><ArrowDown size={16} /></button>
-                  <button onClick={() => { setEditingProdCatId(c.id); setNewProdCatName(c.name); }} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '4px', color: '#3b82f6', cursor: 'pointer' }}><Edit2 size={16} /></button>
-                  <button onClick={async () => { if(window.confirm('カテゴリを削除しますか？')) { await supabase.from('service_categories').delete().eq('id', c.id); fetchMenuDetails(); } }} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '4px', color: '#ef4444', cursor: 'pointer' }}><Trash2 size={16} /></button>
+                  <button onClick={() => moveItem('category', productCategories, c.id, 'up')} disabled={idx === 0} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '4px', opacity: idx === 0 ? 0.3 : 1 }}><ArrowUp size={16} /></button>
+                  <button onClick={() => moveItem('category', productCategories, c.id, 'down')} disabled={idx === productCategories.length - 1} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '4px', opacity: idx === productCategories.length - 1 ? 0.3 : 1 }}><ArrowDown size={16} /></button>
+                  
+                  {/* ✅ adj ではなく c を使うように修正しました [cite: 2026-03-08] */}
+                  <button onClick={() => { setEditingProdCatId(c.id); setNewProdCatName(c.name); }} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '4px', color: '#3b82f6' }}><Edit2 size={16} /></button>
+                  
+                  <button onClick={async () => { if(window.confirm('カテゴリを削除しますか？')) { await supabase.from('service_categories').delete().eq('id', c.id); fetchMenuDetails(); } }} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '4px', color: '#ef4444' }}><Trash2 size={16} /></button>
                 </div>
               </div>
             ))}
           </div>
-        </section>
+                  </section>
 
         {/* 2. 商品登録フォーム */}
         <section style={{ ...cardStyle, border: '2px solid #008000' }}>
@@ -711,23 +730,37 @@ showMsg(editingOptionId ? '枝メニューを更新しました' : '枝メニュ
         {productCategories.map(cat => (
           <div key={cat.id} style={{ marginBottom: '30px' }}>
             <h4 style={{ color: '#008000', fontSize: '0.9rem', marginBottom: '15px', borderLeft: '5px solid #008000', paddingLeft: '12px', fontWeight: 'bold' }}>{cat.name}</h4>
+{/* 緑色の店販商品の一覧部分 */}
             {products.filter(p => p.category === cat.name).map((p, idx, filteredList) => (
               <div key={p.id} style={{ ...cardStyle, padding: '18px 25px', marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid #bbf7d0' }}>
                 <div>
                   <div style={{ fontWeight: 'bold', color: '#1e293b' }}>{p.name}</div>
                   <div style={{ fontSize: '0.95rem', color: '#008000', fontWeight: 'bold', marginTop: '4px' }}>¥{(p.price || 0).toLocaleString()}</div>
                 </div>
+
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  {/* 🆕 追加：商品そのものの並び替えボタン [cite: 2026-03-08] */}
-                  <button onClick={() => moveItem('product', filteredList, p.id, 'up')} disabled={idx === 0} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '6px', opacity: idx === 0 ? 0.3 : 1 }}><ArrowUp size={20} /></button>
-                  <button onClick={() => moveItem('product', filteredList, p.id, 'down')} disabled={idx === filteredList.length - 1} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '6px', opacity: idx === filteredList.length - 1 ? 0.3 : 1 }}><ArrowDown size={20} /></button>
+                  {/* 💡 ここを修正：'product' と p.id を使います [cite: 2026-03-08] */}
+                  <button 
+                    onClick={() => moveItem('product', filteredList, p.id, 'up')} 
+                    disabled={idx === 0} 
+                    style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '6px', opacity: idx === 0 ? 0.3 : 1, cursor: idx === 0 ? 'not-allowed' : 'pointer' }}
+                  >
+                    <ArrowUp size={20} />
+                  </button>
+                  <button 
+                    onClick={() => moveItem('product', filteredList, p.id, 'down')} 
+                    disabled={idx === filteredList.length - 1} 
+                    style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '6px', opacity: idx === filteredList.length - 1 ? 0.3 : 1, cursor: idx === filteredList.length - 1 ? 'not-allowed' : 'pointer' }}
+                  >
+                    <ArrowDown size={20} />
+                  </button>
                   
                   <button onClick={() => { setEditingProdId(p.id); setNewProdName(p.name); setNewProdPrice(p.price); setSelectedProdCat(p.category); }} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '6px', color: '#3b82f6' }}><Edit2 size={20} /></button>
                   <button onClick={async () => { if(window.confirm('削除しますか？')) { await supabase.from('products').delete().eq('id', p.id); fetchMenuDetails(); } }} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '6px', color: '#ef4444' }}><Trash2 size={20} /></button>
                 </div>
               </div>
             ))}
-          </div>
+                      </div>
         ))}
         </div>
 
@@ -791,11 +824,11 @@ showMsg(editingOptionId ? '枝メニューを更新しました' : '枝メニュ
           </form>
         </section>
 
-        {/* 3. 調整ボタン一覧（並び替え・編集機能） [cite: 2026-03-08] */}
+{/* 3. 調整ボタン一覧（並び替え・編集機能） [cite: 2026-03-08] */}
         {adjCategories.map(cat => (
           <div key={cat.id} style={{ marginBottom: '30px' }}>
             <h4 style={{ color: '#ef4444', fontSize: '0.9rem', marginBottom: '15px', borderLeft: '5px solid #ef4444', paddingLeft: '12px', fontWeight: 'bold' }}>{cat.name}</h4>
-            {adjustments.filter(a => a.category === cat.name).map((adj) => (
+            {adjustments.filter(a => a.category === cat.name).map((adj, idx, filteredList) => (
               <div key={adj.id} style={{ ...cardStyle, padding: '18px 25px', marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid #feb2b2' }}>
                 <div>
                   <div style={{ fontWeight: 'bold', color: '#1e293b' }}>{adj.name}</div>
@@ -803,17 +836,31 @@ showMsg(editingOptionId ? '枝メニューを更新しました' : '枝メニュ
                     {adj.is_minus ? '－' : adj.is_percent ? '' : '＋'}{adj.price}{adj.is_percent ? '%' : '円'}
                   </div>
                 </div>
+
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  <button onClick={() => moveItem('adjustment', adjustments, adj.id, 'up')} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '6px' }}><ArrowUp size={20} /></button>
-                  <button onClick={() => moveItem('adjustment', adjustments, adj.id, 'down')} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '6px' }}><ArrowDown size={20} /></button>
+                  {/* ✅ 修正：調整項目(adjustment)として、正しいID(adj.id)を渡します [cite: 2026-03-08] */}
+                  <button 
+                    onClick={() => moveItem('adjustment', filteredList, adj.id, 'up')} 
+                    disabled={idx === 0} 
+                    style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '6px', opacity: idx === 0 ? 0.3 : 1, cursor: idx === 0 ? 'not-allowed' : 'pointer' }}
+                  >
+                    <ArrowUp size={20} />
+                  </button>
+                  <button 
+                    onClick={() => moveItem('adjustment', filteredList, adj.id, 'down')} 
+                    disabled={idx === filteredList.length - 1} 
+                    style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '6px', opacity: idx === filteredList.length - 1 ? 0.3 : 1, cursor: idx === filteredList.length - 1 ? 'not-allowed' : 'pointer' }}
+                  >
+                    <ArrowDown size={20} />
+                  </button>
+                  
                   <button onClick={() => { setEditingAdjId(adj.id); setNewAdjName(adj.name); setAdjValue(adj.price); setSelectedAdjCat(adj.category); }} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '6px', color: '#3b82f6' }}><Edit2 size={20} /></button>
                   <button onClick={async () => { if(window.confirm('削除しますか？')) { await supabase.from('admin_adjustments').delete().eq('id', adj.id); fetchMenuDetails(); } }} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '6px', color: '#ef4444' }}><Trash2 size={20} /></button>
                 </div>
               </div>
             ))}
           </div>
-        ))}
-      </div>
+        ))}      </div>
 
     </div>
   );
