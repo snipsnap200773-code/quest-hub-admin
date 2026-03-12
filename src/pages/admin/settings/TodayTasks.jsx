@@ -294,72 +294,85 @@ const initialSvcs = opt.services || (opt.people ? opt.people.flatMap(p => p.serv
   };
 
 /* ==========================================
-    🆕 お客様の詳細情報（名簿マスタからメモを取得）
-   ========================================== */
+    🆕 お客様の詳細情報（名簿マスタからメモを取得 ＆ 履歴を名前でも検索）
+   ========================================== */
 const openCustomerInfo = async (task) => {
-  setSelectedTask(task); // 現在のタスクを保持
-  let cust = null;
+  setSelectedTask(task); // 現在のタスクを保持
+  let cust = null;
 
-  try {
-    // 1. まず予約データに customer_id が紐付いているか確認
-    if (task.customer_id) {
-      const { data } = await supabase
-        .from('customers')
-        .select('*')
-        .eq('id', task.customer_id)
-        .maybeSingle();
-      cust = data;
-    }
+  try {
+    // 1. まず予約データに customer_id が紐付いているか確認
+    if (task.customer_id) {
+      const { data } = await supabase
+        .from('customers')
+        .select('*')
+        .eq('id', task.customer_id)
+        .maybeSingle();
+      cust = data;
+    }
 
-    // 2. 紐付けがない場合、電話番号かメールで名簿をガサ入れ（名寄せ）
-    if (!cust) {
-      const orConditions = [];
-      if (task.customer_phone && task.customer_phone !== '---') orConditions.push(`phone.eq.${task.customer_phone}`);
-      if (task.customer_email) orConditions.push(`email.eq.${task.customer_email}`);
+    // 2. 紐付けがない場合、電話番号かメールで名簿をガサ入れ（名寄せ）
+    if (!cust) {
+      const orConditions = [];
+      if (task.customer_phone && task.customer_phone !== '---') orConditions.push(`phone.eq.${task.customer_phone}`);
+      if (task.customer_email) orConditions.push(`email.eq.${task.customer_email}`);
 
-      if (orConditions.length > 0) {
-        const { data } = await supabase
-          .from('customers')
-          .select('*')
-          .eq('shop_id', shopId)
-          .or(orConditions.join(','))
-          .maybeSingle();
-        cust = data;
-      }
-    }
+      if (orConditions.length > 0) {
+        const { data } = await supabase
+        .from('customers')
+        .select('*')
+        .eq('shop_id', shopId)
+        .or(orConditions.join(','))
+        .maybeSingle();
+        cust = data;
+      }
+    }
 
-    // 状態をセット
-    if (cust) {
-      setSelectedCustomer(cust);
-      setCustomerMemo(cust.memo || '');
-    } else {
-      // 全くの新規客の場合
-      setSelectedCustomer({ name: task.customer_name, id: null });
-      setCustomerMemo('');
-    }
+    // 状態をセット
+    if (cust) {
+      setSelectedCustomer(cust);
+      setCustomerMemo(cust.memo || '');
+    } else {
+      setSelectedCustomer({ name: task.customer_name, id: null });
+      setCustomerMemo('');
+    }
 
-    // 3. 過去の来店履歴を取得
-    const searchId = cust?.id || task.customer_id;
-    if (searchId) {
-      const { data: history } = await supabase
-        .from('reservations')
-        .select('*')
-        .eq('shop_id', shopId)
-        .eq('customer_id', searchId)
-        .eq('status', 'completed')
-        .order('start_time', { ascending: false })
-        .limit(10);
-      setCustomerHistory(history || []);
-    } else {
-      setCustomerHistory([]);
-    }
+    // 3. 🆕 過去の来店履歴を取得（AdminReservationsのロジックを移植）
+    const searchId = cust?.id || task.customer_id;
+    
+    // クエリの構築
+    let historyQuery = supabase
+      .from('reservations')
+      .select('*')
+      .eq('shop_id', shopId)
+      .eq('res_type', 'normal') // ブロックなどは除外
+      .neq('id', task.id);      // 今回の予約自体は除外
 
-    setShowCustomerModal(true);
-  } catch (err) {
-    console.error("データ取得エラー:", err);
-    setShowCustomerModal(true);
-  }
+    if (searchId) {
+      // 💡 IDがある場合：IDが一致、または名前が一致すれば履歴とする
+      historyQuery = historyQuery.or(`customer_id.eq.${searchId},customer_name.eq.${task.customer_name}`);
+    } else {
+      // 💡 IDがない場合：名前の一致だけで探す
+      historyQuery = historyQuery.eq('customer_name', task.customer_name);
+    }
+
+    const { data: history, error: hError } = await historyQuery
+      .order('start_time', { ascending: false })
+      .limit(10);
+
+    if (!hError) {
+      setCustomerHistory(history || []);
+    } else {
+      setCustomerHistory([]);
+    }
+
+    setShowCustomerModal(true);
+  } catch (err) {
+    console.error("データ取得エラー:", err);
+    setShowCustomerModal(true);
+  }
 };
+
 /* ==========================================
     🆕 顧客メモを保存（マスタ共通 ＆ 予約と名簿を紐付け）
    ========================================== */
