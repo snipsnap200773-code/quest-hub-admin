@@ -601,7 +601,7 @@ const handleNextStep = () => {
           );
         })}
 
-        {selectedServices.length > 0 && people.length < 3 && allOptionsSelected && isRequiredMet && (
+        {shop?.allow_multi_person_reservation && selectedServices.length > 0 && people.length < 3 && allOptionsSelected && isRequiredMet && (
           <button 
             onClick={handleAddPerson}
             style={{ 

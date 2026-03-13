@@ -28,6 +28,7 @@ const ScheduleSettings = () => {
   const [minLeadTimeHours, setMinLeadTimeHours] = useState(0);
   const [autoFillLogic, setAutoFillLogic] = useState(true);
   const [maxCapacity, setMaxCapacity] = useState(1);
+  const [allowMultiPerson, setAllowMultiPerson] = useState(true);
 
   // ✅ 🆕 修正1：長期休暇用のStateを追加
   const [specialHolidays, setSpecialHolidays] = useState([]);
@@ -68,7 +69,7 @@ const fetchScheduleData = async () => {
       setMinLeadTimeHours(data.min_lead_time_hours || 0);
       setAutoFillLogic(data.auto_fill_logic ?? true);
       setMaxCapacity(data.max_capacity || 1);
-      // ✅ 🆕 長期休暇データを取得
+      setAllowMultiPerson(data.allow_multi_person_reservation ?? true);
       setSpecialHolidays(data.special_holidays || []);
     }
   };
@@ -117,7 +118,8 @@ const fetchScheduleData = async () => {
       buffer_preparation_min: bufferPreparationMin,
       min_lead_time_hours: minLeadTimeHours,
       auto_fill_logic: autoFillLogic,
-      max_capacity: maxCapacity
+      max_capacity: maxCapacity,
+      allow_multi_person_reservation: allowMultiPerson
     }).eq('id', shopId);
 
     if (!error) showMsg('全スケジュール設定を保存しました！');
@@ -257,6 +259,31 @@ const fetchScheduleData = async () => {
           <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '6px', lineHeight: '1.4' }}>
             ※同じ時間枠に最大何名まで予約を許可するか設定します。
           </p>
+        </div>
+
+        {/* ✅ 🆕 差し込み：複数名予約のON/OFFスイッチ */}
+        <div style={{ marginBottom: '25px', padding: '15px', background: '#f8fafc', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
+          <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
+            <div>
+              <b style={{ fontSize: '0.9rem', color: '#334155', display: 'block' }}>複数名（最大3名）の同時予約</b>
+              <span style={{ fontSize: '0.7rem', color: '#64748b' }}>予約フォームの「追加でもう一人」ボタンの表示設定</span>
+            </div>
+            <div 
+              onClick={() => setAllowMultiPerson(!allowMultiPerson)} 
+              style={{ 
+                width: '52px', height: '28px', 
+                background: allowMultiPerson ? themeColor : '#cbd5e1', 
+                borderRadius: '20px', position: 'relative', transition: '0.3s' 
+              }}
+            >
+              <div style={{ 
+                position: 'absolute', top: '2px', 
+                left: allowMultiPerson ? '26px' : '2px', 
+                width: '24px', height: '24px', background: '#fff', 
+                borderRadius: '50%', transition: '0.3s', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' 
+              }} />
+            </div>
+          </label>
         </div>
 
         <div style={{ marginBottom: '20px' }}>

@@ -546,6 +546,26 @@ const timeSlots = useMemo(() => {
   }
   return slots;
 }, [shop]);
+
+  // ✅ 🆕 【Step B：自動スクロール実行ロジック】ここから差し込み
+  useEffect(() => {
+    if (!loading && timeSlots.length > 0 && scrollRef.current) {
+      const now = new Date();
+      const currentTimeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      
+      // 今の時間帯がタイムラインのどこにあるか探す
+      const targetIdx = timeSlots.findIndex(slot => slot >= currentTimeStr);
+      
+      if (targetIdx !== -1) {
+        const columnWidth = 120; // <td> で設定している minWidth
+        // 今の時間が左端に来るようにスクロール（1列分だけ余裕を持たせる）
+        const scrollOffset = Math.max(0, (targetIdx - 1) * columnWidth);
+        
+        scrollRef.current.scrollLeft = scrollOffset;
+      }
+    }
+  }, [loading, timeSlots]);
+  // ✅ 🆕 差し込みここまで
   
   const themeColor = shop?.theme_color || '#4b2c85';
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
@@ -106,6 +106,7 @@ const [editFields, setEditFields] = useState({
   });
     // キーボード選択用のIndex管理
   const [selectedIndex, setSelectedIndex] = useState(-1);
+  const scrollContainerRef = useRef(null);
 
   useEffect(() => {
     const handleResize = () => setWindowWidth(window.innerWidth);
@@ -608,7 +609,29 @@ const openDetail = async (res) => {
     return slots;
   }, [shop]);
 
-// --- [301行目付近] ---
+    // ✅ 🆕 【Step B：自動スクロール実行ロジック】ここから差し込み
+  useEffect(() => {
+    // 読み込みが終わり、時間軸データがあり、Refが準備できている時だけ実行
+    if (!loading && timeSlots.length > 0 && scrollContainerRef.current) {
+      const now = new Date();
+      const currentH = now.getHours();
+      const currentM = now.getMinutes();
+
+      // 現在時刻に一番近い時間軸のインデックス（番号）を探す
+      const targetIdx = timeSlots.findIndex(slot => {
+        const [h, m] = slot.split(':').map(Number);
+        return (h === currentH && currentM < m + 30) || h > currentH;
+      });
+
+      if (targetIdx !== -1) {
+        const rowHeight = 60; // 1マスの高さ
+        // 少し余裕を持って2コマ分（120px）上にスクロールさせる
+        scrollContainerRef.current.scrollTop = Math.max(0, (targetIdx - 2) * rowHeight);
+      }
+    }
+  }, [loading, timeSlots]); 
+  // ✅ 🆕 差し込みここまで
+
   const getJapanDateStr = (date) => date.toLocaleDateString('sv-SE');
 
 const getStatusAt = (dateStr, timeStr) => {
@@ -955,6 +978,7 @@ return (
 <AnimatePresence mode="wait" initial={false}> {/* ✅ modeを"wait"にすると残像が消えます */}
   <motion.div
     key={startDate.toISOString()}
+    ref={scrollContainerRef}
     
     // 🆕 酔い対策：移動距離を30→10へ短縮、不透明度をメインに
     initial={{ opacity: 0, x: 10 }} 
