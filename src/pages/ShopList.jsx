@@ -44,7 +44,9 @@ const [shops, setShops] = useState([]);
       .from('profiles')
       .select('*')
       .eq('is_suspended', false)
-      .eq('business_type', categoryId) // 大カテゴリで絞り込み
+      // ✅ 🆕 修正：プラン2（フルプラン）の店舗だけをリストに表示する
+      .eq('service_plan', 2) 
+      .eq('business_type', categoryId) 
       .not('business_name', 'is', null);
 
     // 🆕 小カテゴリが選ばれている場合は、その条件を追加

@@ -48,6 +48,10 @@ const MenuSettings = () => {
   const [selectedCategory, setSelectedCategory] = useState('');
   const [editingServiceId, setEditingServiceId] = useState(null);
 
+  // ✅ 🆕 差し込み：時間制限用のStateを追加
+  const [useRestriction, setUseRestriction] = useState(false);
+  const [timeRanges, setTimeRanges] = useState([{ start: '08:00', end: '09:00' }]);
+
   // 枝メニュー用State
   const [activeServiceForOptions, setActiveServiceForOptions] = useState(null);
   const [optGroupName, setOptGroupName] = useState(''); 
@@ -253,12 +257,13 @@ const handleServiceSubmit = async (e) => {
     }
     const finalCategory = selectedCategory || (categories[0]?.name || 'その他');
 const serviceData = { 
-  shop_id: shopId, 
-  name: newServiceName, 
-  slots: Number(newServiceSlots),
-  // 🆕 料金もデータに含めます [cite: 2026-03-08]
+  shop_id: shopId, 
+  name: newServiceName, 
+  slots: Number(newServiceSlots),
   price: Number(newServicePrice), 
-  category: finalCategory 
+  category: finalCategory,
+  // ✅ 🆕 修正：入力された時間範囲の配列を保存
+  restricted_hours: useRestriction ? timeRanges : null
 };
     if (editingServiceId) await supabase.from('services').update(serviceData).eq('id', editingServiceId);
     else await supabase.from('services').insert([{ ...serviceData, sort_order: services.length }]);
@@ -607,7 +612,67 @@ const handleProdCatSubmit = async (e) => {
             </div>
           </div>
 
-          <div style={{ marginBottom: '20px' }}>            <label style={{ fontSize: '0.85rem', fontWeight: 'bold', display: 'block', marginBottom: '10px', color: '#64748b' }}>
+{/* ✅ 🆕 差し込み：受付時間制限の設定UI */}
+          <div style={{ marginBottom: '20px', padding: '15px', background: useRestriction ? `${themeColor}08` : '#f1f5f9', borderRadius: '12px', border: useRestriction ? `1px solid ${themeColor}44` : '1px solid #e2e8f0' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', marginBottom: useRestriction ? '15px' : '0' }}>
+              <input type="checkbox" checked={useRestriction} onChange={(e) => setUseRestriction(e.target.checked)} style={{ width: '18px', height: '18px' }} />
+              <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#334155' }}>このメニューの受付時間を制限する</span>
+            </label>
+
+            {useRestriction && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {timeRanges.map((range, index) => (
+                  <div key={index} style={{ display: 'flex', alignItems: 'center', gap: '10px', animation: 'fadeIn 0.3s ease' }}>
+                    <input 
+                      type="time" 
+                      value={range.start} 
+                      onChange={(e) => {
+                        const newRanges = [...timeRanges];
+                        newRanges[index].start = e.target.value;
+                        setTimeRanges(newRanges);
+                      }} 
+                      style={{ ...inputStyle, width: '120px', padding: '8px' }} 
+                    />
+                    <span style={{ fontSize: '0.8rem', color: '#64748b' }}>〜</span>
+                    <input 
+                      type="time" 
+                      value={range.end} 
+                      onChange={(e) => {
+                        const newRanges = [...timeRanges];
+                        newRanges[index].end = e.target.value;
+                        setTimeRanges(newRanges);
+                      }} 
+                      style={{ ...inputStyle, width: '120px', padding: '8px' }} 
+                    />
+                    
+                    {/* 削除ボタン：2つ以上ある時だけ表示 */}
+                    {timeRanges.length > 1 && (
+                      <button 
+                        type="button" 
+                        onClick={() => setTimeRanges(timeRanges.filter((_, i) => i !== index))}
+                        style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '5px' }}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                
+                {/* ＋ 追加ボタン */}
+                <button 
+                  type="button"
+                  onClick={() => setTimeRanges([...timeRanges, { start: '18:00', end: '20:00' }])}
+                  style={{ alignSelf: 'flex-start', fontSize: '0.75rem', background: '#fff', border: `1px dashed ${themeColor}`, color: themeColor, padding: '5px 12px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', marginTop: '5px' }}
+                >
+                  ＋ 時間帯を追加
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{ fontSize: '0.85rem', fontWeight: 'bold', display: 'block', marginBottom: '10px', color: '#64748b' }}>
+              
               必要コマ数: <span style={{ color: themeColor, fontSize: '1.1rem' }}>{newServiceSlots}コマ（{newServiceSlots * slotIntervalMin}分）</span>
             </label>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -661,9 +726,19 @@ const handleProdCatSubmit = async (e) => {
                         setEditingServiceId(s.id); 
                         setNewServiceName(s.name); 
                         setNewServiceSlots(s.slots); 
-                        // ✅ 修正：保存されている金額も入力欄へ戻るように追加 [cite: 2026-03-08]
                         setNewServicePrice(s.price || 0); 
                         setSelectedCategory(s.category); 
+                        
+                        // ✅ 🆕 差し込み：制限データの復元
+                        if (s.restricted_hours) {
+                          setUseRestriction(true);
+                          // 過去に単一オブジェクトで保存していた場合にも対応できるように Array.isArray で判定
+                          setTimeRanges(Array.isArray(s.restricted_hours) ? s.restricted_hours : [s.restricted_hours]);
+                        } else {
+                          setUseRestriction(false);
+                          setTimeRanges([{ start: '08:00', end: '09:00' }]); // デフォルト値
+                        }
+
                         menuFormRef.current?.scrollIntoView({ behavior: 'smooth' }); 
                       }} 
                       style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '4px', color: '#3b82f6' }}

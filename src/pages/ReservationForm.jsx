@@ -93,8 +93,16 @@ const VISIT_KEYWORDS = ['訪問', '出張', '代行', 'デリバリー', '清掃
     const shopRes = await supabase.from('profiles').select('*').eq('id', shopId).single();
     
 if (shopRes.data) {
+      // ✅ 🆕 差し込み：プラン1 且つ 管理者モードでない場合はブロック
+      if (shopRes.data.service_plan === 1 && !isAdminMode) {
+        setShop(null); // shopを空にする
+        setLoading(false);
+        return; 
+        // 💡 これで、下の「店舗が見つかりません」または「予約受付停止」の画面になります
+      }
+
       setShop(shopRes.data);
-      
+            
       // ✅ 1. キーワードが含まれているか判定（キーワード方式）
       const businessTypeName = shopRes.data.business_type || '';
       const isVisit = VISIT_KEYWORDS.some(keyword => businessTypeName.includes(keyword));

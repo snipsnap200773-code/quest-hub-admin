@@ -24,7 +24,7 @@ const getCustomerColor = (name) => {
 };
 
 // 🆕 追加：定休日かどうかを判定するヘルパー関数（エラー解決用）
-const checkIsRegularHoliday = (shop, date) => {
+const isShopHoliday = (shop, date) => {
   if (!shop?.business_hours?.regular_holidays) return false;
   const holidays = shop.business_hours.regular_holidays || {};
   const dayNames = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
@@ -41,13 +41,11 @@ const checkIsRegularHoliday = (shop, date) => {
   const isRegular = !!(holidays[`${nthWeek}-${dayName}`] || (isLastWeek && holidays[`L1-${dayName}`]) || (isSecondToLastWeek && holidays[`L2-${dayName}`]));
   if (isRegular) return true;
 
-  // 2. 長期休暇チェック（新設カラム special_holidays を参照）
   if (shop.special_holidays && Array.isArray(shop.special_holidays)) {
     const dStr = date.toLocaleDateString('sv-SE');
     const isSpecial = shop.special_holidays.some(h => dStr >= h.start && dStr <= h.end);
     if (isSpecial) return true;
   }
-
   return false;
 };
 
@@ -130,7 +128,11 @@ const [selectedCustomer, setSelectedCustomer] = useState(null);
     if (profile) setShop(profile);
 
     // 2. スタッフ一覧取得
-    const { data: staffsData } = await supabase.from('staffs').select('*').eq('shop_id', shopId).order('created_at', { ascending: true });
+    const { data: staffsData } = await supabase
+      .from('staffs')
+      .select('*')
+      .eq('shop_id', shopId)
+      .order('sort_order', { ascending: true });
     setStaffs(staffsData || []);
 
 // 3. 予約データ取得（担当者名結合）
@@ -827,9 +829,22 @@ if (startingHere.length === 1) {
         <div style={overlayStyle} onClick={() => { if(selectedRes?.isRegularHoliday) return; setShowDetailModal(false); }}>
           <div onClick={(e) => e.stopPropagation()} style={{ ...modalContentStyle, maxWidth: '650px', position: 'relative' }}>
             
-            {selectedRes?.res_type === 'normal' && (
+{selectedRes?.res_type === 'normal' && (
               <button 
-                onClick={() => navigate(`/shop/${shopId}/reserve`, { state: { adminDate: selectedDate, adminTime: targetTime, adminStaffId: targetStaffId, fromView: 'timeline', isAdminMode: true } })} 
+                onClick={() => {
+                  // 💡 1人営業ならその人のIDを、そうでなければクリックした枠の担当IDを渡す
+                  const finalStaffId = staffs.length === 1 ? staffs[0].id : targetStaffId;
+                  
+                  navigate(`/shop/${shopId}/reserve`, { 
+                    state: { 
+                      adminDate: selectedDate, 
+                      adminTime: targetTime, 
+                      adminStaffId: finalStaffId, // ✅ ここを修正
+                      fromView: 'timeline', 
+                      isAdminMode: true 
+                    } 
+                  });
+                }}
                 style={{ width: '100%', padding: '16px', background: themeColor, color: '#fff', border: 'none', borderRadius: '15px', fontWeight: 'bold', cursor: 'pointer', marginBottom: '20px', fontSize: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', boxShadow: `0 4px 12px ${themeColor}44` }}
               >
                 ➕ この時間にさらに予約を入れる（ねじ込み）
@@ -898,11 +913,19 @@ if (startingHere.length === 1) {
                       <div style={{ fontWeight: 'bold', color: '#1e293b' }}>{selectedRes?.menu_name || 'メニュー未設定'}</div>
                     </div>
 
-                    <label style={labelStyle}>担当スタッフの変更</label>
-                    <select value={selectedRes?.staff_id || ''} onChange={(e) => setSelectedRes({...selectedRes, staff_id: e.target.value || null})} style={inputStyle}>
-                      <option value="">フリー（担当なし）</option>
-                      {staffs.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
+                    {staffs.length > 1 && (
+                      <>
+                        <label style={labelStyle}>担当スタッフの変更</label>
+                        <select 
+                          value={selectedRes?.staff_id || ''} 
+                          onChange={(e) => setSelectedRes({...selectedRes, staff_id: e.target.value || null})} 
+                          style={inputStyle}
+                        >
+                          <option value="">フリー（担当なし）</option>
+                          {staffs.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                      </>
+                    )}
 
                     <label style={labelStyle}>お客様名</label>
                     <input type="text" value={editFields.name} onChange={(e) => setEditFields({...editFields, name: e.target.value})} style={inputStyle} />

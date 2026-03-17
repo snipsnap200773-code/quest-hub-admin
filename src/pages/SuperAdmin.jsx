@@ -109,7 +109,8 @@ function SuperAdmin() {
     total: createdShops.length,
     active: createdShops.filter(s => !s.is_suspended).length,
     suspended: createdShops.filter(s => s.is_suspended).length,
-    managementEnabled: createdShops.filter(s => s.is_management_enabled).length
+    fullPlan: createdShops.filter(s => s.service_plan === 2).length,
+    ledgerPlan: createdShops.filter(s => s.service_plan === 1).length
   }), [createdShops]);
 
   // ✅ 🆕 修正：店舗作成 + ウェルカムメール送信の統合
@@ -198,12 +199,23 @@ const updateShopInfo = async (id) => {
     if (!error) fetchCreatedShops();
   };
 
-  const toggleManagementAccess = async (shop) => {
-    const nextState = !shop.is_management_enabled;
-    const msg = nextState ? `「${shop.business_name}」に顧客・売上管理機能の使用を許可しますか？` : `許可を解除しますか？`;
-    if (!window.confirm(msg)) return;
-    const { error } = await supabase.from('profiles').update({ is_management_enabled: nextState }).eq('id', shop.id);
-    if (!error) fetchCreatedShops();
+  // ✅ 🆕 差し替え：サービスプラン（1 or 2）を更新する関数
+  const updateServicePlan = async (shopId, planValue) => {
+    const { error } = await supabase
+      .from('profiles')
+      .update({ 
+        service_plan: parseInt(planValue),
+        // 💡 念のため古いカラム(is_management_enabled)も連動させておくと安全です
+        is_management_enabled: true 
+      })
+      .eq('id', shopId);
+      
+    if (!error) {
+      fetchCreatedShops();
+      alert('サービスプランを更新しました');
+    } else {
+      alert('プランの更新に失敗しました：' + error.message);
+    }
   };
 
   const deleteShop = async (shop) => {
@@ -316,7 +328,7 @@ const updateShopInfo = async (id) => {
   onUpdate={updateShopInfo} 
   onDelete={deleteShop} 
   onToggleSuspension={toggleSuspension} 
-  onToggleManagement={toggleManagementAccess} 
+  onToggleManagement={updateServicePlan} 
   onCopy={copyToClipboard} 
   categories={categoriesList} 
 />
@@ -561,14 +573,23 @@ function ShopCard({ shop, index, editingShopId, setEditingShopId, editState, onU
           <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '5px' }}>{shop.owner_name} / PW: <strong>{shop.admin_password}</strong></div>
           <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: '15px' }}>業種: {shop.business_type || "未設定"}</div>
           
-          <div style={{ marginBottom: '15px', padding: '12px', background: isMgmtEnabled ? '#f5f3ff' : '#f8fafc', borderRadius: '12px', border: `1px dashed ${isMgmtEnabled ? '#7c3aed' : '#cbd5e1'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <LayoutDashboard size={16} color={isMgmtEnabled ? '#7c3aed' : '#64748b'} />
-              <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: isMgmtEnabled ? '#7c3aed' : '#64748b' }}>顧客・売上管理機能</span>
+          {/* ✅ 🆕 プラン選択スイッチへアップグレード */}
+          <div style={{ marginBottom: '15px', padding: '12px', background: (shop.service_plan || 2) === 2 ? '#f5f3ff' : '#f8fafc', borderRadius: '12px', border: `1px dashed ${(shop.service_plan || 2) === 2 ? '#7c3aed' : '#64748b'}` }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+              <LayoutDashboard size={16} color={(shop.service_plan || 2) === 2 ? '#7c3aed' : '#64748b'} />
+              <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: (shop.service_plan || 2) === 2 ? '#7c3aed' : '#64748b' }}>
+                サービスプラン設定
+              </span>
             </div>
-            <button onClick={() => onToggleManagement(shop)} style={{ border: 'none', background: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-              {isMgmtEnabled ? <CheckCircle2 size={24} color="#7c3aed" /> : <XCircle size={24} color="#cbd5e1" />}
-            </button>
+            
+            <select 
+              value={shop.service_plan || 2} 
+              onChange={(e) => onToggleManagement(shop.id, e.target.value)} 
+              style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid #ddd', fontSize: '0.85rem', cursor: 'pointer', background: '#fff', outline: 'none', fontWeight: 'bold', color: '#1e293b' }}
+            >
+              <option value={2}>プラン2：フル機能開放（予約サイト掲載あり）</option>
+              <option value={1}>プラン1：内部管理のみ（Web/LINE予約停止）</option>
+            </select>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>

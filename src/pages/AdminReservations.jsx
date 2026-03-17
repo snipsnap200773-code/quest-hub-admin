@@ -137,6 +137,14 @@ const isPC = windowWidth > 1024;
     if (!profile) { setLoading(false); return; }
     setShop(profile);
 
+    // ✅ スタッフ一覧を取得（何人いるか判定するため）
+    const { data: staffsData } = await supabase
+      .from('staffs')
+      .select('*')
+      .eq('shop_id', shopId)
+      .order('sort_order', { ascending: true });
+    setStaffs(staffsData || []);
+
     // 2. スケジュール共有設定（schedule_sync_id）を確認
     let targetShopIds = [shopId];
     if (profile.schedule_sync_id) {
@@ -1349,11 +1357,19 @@ if (startingHere.length === 1) {
                       <span style={{ fontSize: '0.8rem', color: '#475569' }}>担当: {selectedRes?.staffs?.name || '店舗スタッフ'}</span>
                     </div>
 
-                    <label style={labelStyle}>担当スタッフの変更</label>
-                    <select value={selectedRes?.staff_id || ''} onChange={(e) => setSelectedRes({...selectedRes, staff_id: e.target.value || null})} style={inputStyle}>
-                      <option value="">フリー（担当なし）</option>
-                      {staffs.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
+                    {staffs.length > 1 && (
+                      <>
+                        <label style={labelStyle}>担当スタッフの変更</label>
+                        <select 
+                          value={selectedRes?.staff_id || ''} 
+                          onChange={(e) => setSelectedRes({...selectedRes, staff_id: e.target.value || null})} 
+                          style={inputStyle}
+                        >
+                          <option value="">フリー（担当なし）</option>
+                          {staffs.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                      </>
+                    )}
 
                     <label style={labelStyle}>お客様名</label>
                     <input type="text" value={editFields.name} onChange={(e) => setEditFields({...editFields, name: e.target.value})} style={inputStyle} />

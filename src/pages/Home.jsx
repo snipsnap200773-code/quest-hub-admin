@@ -69,7 +69,14 @@ const [isModalOpen, setIsModalOpen] = useState(false);
   // 🆕 1. 【部品】ポータルデータを読み込む関数（最優先で実行される）
   const fetchPortalData = async () => {
     try {
-      const shopRes = await supabase.from('profiles').select('*').eq('is_suspended', false).not('business_name', 'is', null);
+      // ✅ 🆕 修正：プラン2（フルプラン）の店舗だけをポータルに表示する
+      const shopRes = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('is_suspended', false)
+        .eq('service_plan', 2) // 👈 ここを追加！
+        .not('business_name', 'is', null);
+
       if (shopRes.data) {
         setShops(shopRes.data);
         setNewShops([...shopRes.data].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 3));
@@ -160,7 +167,13 @@ try {
           .from('favorites')
           .select('*, profiles(*)')
           .eq('user_id', session.user.id);
-        if (favs) setFavorites(favs);
+
+        if (favs) {
+          // ✅ 🆕 修正：プラン2（フルプラン）の店舗だけに絞り込む
+          // profilesが存在しない（店舗削除済み）や、プラン1の店舗を一覧から除外します
+          const activeFavs = favs.filter(f => f.profiles && f.profiles.service_plan === 2);
+          setFavorites(activeFavs);
+        }
 
       } catch (hErr) {
         console.warn("データの同期をスキップしました:", hErr);

@@ -53,6 +53,13 @@ useEffect(() => {
         .single();
 
       if (!error && data) {
+        // ✅ 🆕 差し込み：プラン1（内部管理のみ）の場合は詳細ページを隠す
+        if (data.service_plan === 1) {
+          setShop(null); // shopを空にすることで、下の「店舗が見つかりませんでした」が表示されます
+          setLoading(false);
+          return;
+        }
+
         setShop(data);
         
         // 🆕 2. 識別キー（url_key）が設定されているカテゴリを動的に取得
@@ -76,12 +83,22 @@ useEffect(() => {
     return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', color: '#999' }}>読み込み中...</div>;
   }
 
+  // ✅ 🆕 修正：テーマカラーの定義をここ（if !shop より上）に移動する
+  const themeColor = shop?.theme_color || '#2563eb';
+
   if (!shop) {
-    return <div style={{ textAlign: 'center', padding: '50px' }}>店舗が見つかりませんでした。</div>;
+    return (
+      <div style={{ textAlign: 'center', padding: '100px 20px' }}>
+        <h2 style={{ fontSize: '1.2rem', color: '#64748b' }}>
+          現在、この店舗はWeb公開を停止しているか、<br />
+          プランの有効期限が切れています。
+        </h2>
+        {/* 💡 これで themeColor がエラーにならずに使えます */}
+        <Link to="/" style={{ color: themeColor, marginTop: '20px', display: 'inline-block' }}>ポータルTOPへ戻る</Link>
+      </div>
+    );
   }
 
-  // ✅ テーマカラーを抽出（デフォルト青）
-  const themeColor = shop?.theme_color || '#2563eb';
 
   // ✅ 1. ここから「handleEmailReservation」関数を追加
 // ✅ 1. handleEmailReservation 関数の修正
@@ -354,7 +371,7 @@ const toggleFavorite = async () => {
               width: '100%'        // レイアウトを崩さないための設定
             }}
           >
-            <Mail size={24} color="#fff" />メール予約
+            <Mail size={24} color="#fff" />Web予約
           </button>
           
           {(shop.liff_id || shop.line_official_url) ? (
