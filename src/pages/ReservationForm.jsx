@@ -261,9 +261,9 @@ fetchPreviousAddress();
 
   // --- 複数名対応の計算ロジック（維持） ---
   const currentPersonSlots = selectedServices.reduce((sum, s) => sum + s.slots, 0) + 
-    Object.values(selectedOptions).reduce((sum, opt) => sum + (opt.additional_slots || 0), 0);
+    Object.values(selectedOptions).flat().reduce((sum, opt) => sum + (opt?.additional_slots || 0), 0);
 
-  const pastPeopleSlots = people.reduce((sum, p) => sum + p.slots, 0);
+  const pastPeopleSlots = people.reduce((sum, p) => sum + p.slots, 0);
 
   const totalSlotsNeeded = pastPeopleSlots + currentPersonSlots;
 
@@ -283,24 +283,24 @@ fetchPreviousAddress();
   const isRequiredMet = checkRequiredMet();
 
   const handleAddPerson = () => {
-    if (people.length >= 3) return; 
+    if (people.length >= 3) return; 
     
-    // ✅ 修正：合体名を作ってから保存する
-    const baseName = selectedServices.map(s => s.name).join(', ');
-    const optName = Object.values(selectedOptions).map(o => o.option_name).join(', ');
-    const fullName = optName ? `${baseName}（${optName}）` : baseName;
+    // 💡 複数選択時は配列に入っているので .flat() で平坦化して名前を結合します
+    const baseName = selectedServices.map(s => s.name).join(', ');
+    const optName = Object.values(selectedOptions).flat().map(o => o?.option_name).filter(Boolean).join(', ');
+    const fullName = optName ? `${baseName}（${optName}）` : baseName;
 
-    setPeople([...people, { 
-      services: selectedServices, 
-      options: selectedOptions, 
-      slots: currentPersonSlots,
-      fullName: fullName // ✅ 合体名を保存
-    }]);
+    setPeople([...people, { 
+      services: selectedServices, 
+      options: selectedOptions, 
+      slots: currentPersonSlots,
+      fullName: fullName 
+    }]);
 
-    setSelectedServices([]);
-    setSelectedOptions({});
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+    setSelectedServices([]);
+    setSelectedOptions({});
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
   
   const removePerson = (index) => {
     const newPeople = [...people];
@@ -370,12 +370,42 @@ fetchPreviousAddress();
   };
 
   const handleOptionSelect = (serviceId, groupName, opt, catIdx) => {
-    const key = `${serviceId}-${groupName}`;
-    const newOptions = { ...selectedOptions, [key]: opt };
-    setSelectedOptions(newOptions);
-    const grouped = getGroupedOptions(serviceId);
-    if (Object.keys(grouped).every(gn => newOptions[`${serviceId}-${gn}`])) scrollToNextValidCategory(catIdx);
-  };
+    const key = `${serviceId}-${groupName}`;
+    const currentSelected = selectedOptions[key] || [];
+    
+    let newOptionsForGroup;
+
+    if (opt.is_multiple) {
+      // 💡 複数選択可能な場合：トグル処理（既にあれば消す、なければ追加）
+      const isAlreadyChosen = Array.isArray(currentSelected) 
+        ? currentSelected.find(o => o.id === opt.id)
+        : currentSelected?.id === opt.id;
+
+      if (isAlreadyChosen) {
+        newOptionsForGroup = Array.isArray(currentSelected) 
+          ? currentSelected.filter(o => o.id !== opt.id)
+          : [];
+      } else {
+        newOptionsForGroup = Array.isArray(currentSelected) 
+          ? [...currentSelected, opt]
+          : [currentSelected, opt].filter(Boolean);
+      }
+    } else {
+      // 💡 単一選択の場合：上書き（配列の0番目に1つだけ入れる）
+      newOptionsForGroup = [opt];
+    }
+
+    const newSelectedOptions = { ...selectedOptions, [key]: newOptionsForGroup };
+    setSelectedOptions(newSelectedOptions);
+
+    // 単一選択で、かつ選択が完了した（空でない）場合のみ次のカテゴリへスクロール
+    if (!opt.is_multiple && newOptionsForGroup.length > 0) {
+      const grouped = getGroupedOptions(serviceId);
+      if (Object.keys(grouped).every(gn => newSelectedOptions[`${serviceId}-${gn}`]?.length > 0)) {
+        scrollToNextValidCategory(catIdx);
+      }
+    }
+  };
 
 const handleNextStep = () => {
     window.scrollTo(0,0);
@@ -426,9 +456,18 @@ const handleNextStep = () => {
   };
 
   const allOptionsSelected = selectedServices.every(s => {
-    const grouped = getGroupedOptions(s.id);
-    return Object.keys(grouped).every(groupName => selectedOptions[`${s.id}-${groupName}`]);
-  });
+    const grouped = getGroupedOptions(s.id);
+    // 💡 単一選択（is_multiple: false）のグループは、必ず1つ以上選ばれている必要がある
+    // 複数選択（is_multiple: true）のグループは、0個でもOKとする（または1個以上とするかはお好みで）
+    return Object.keys(grouped).every(groupName => {
+      const optsInGroup = grouped[groupName];
+      const isMultipleGroup = optsInGroup[0]?.is_multiple;
+      const selections = selectedOptions[`${s.id}-${groupName}`];
+      
+      if (isMultipleGroup) return true; // 複数選択グループは任意（0個でも進める）とする場合
+      return selections && selections.length > 0; // 単一選択は必須
+    });
+  });
 
   if (loading) return <div style={{ textAlign: 'center', padding: '100px', color: '#666' }}>読み込み中...</div>;
   if (shop?.is_suspended) return <div style={{ padding: '60px 20px', textAlign: 'center' }}><h2>現在、予約受付を停止しています</h2></div>;
@@ -579,23 +618,30 @@ const handleNextStep = () => {
                               <p style={{ fontSize: '0.7rem', color: '#475569' }}>└ {gn}</p>
                               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                                 {groupedOpts[gn].map(opt => {
-                                  const isOptSelected = selectedOptions[`${service.id}-${gn}`]?.id === opt.id;
-                                  return (
-                                    <button 
-                                      key={opt.id} 
-                                      onClick={() => handleOptionSelect(service.id, gn, opt, idx)} 
-                                      style={{ 
-                                        padding: '10px 5px', borderRadius: '8px', border: '1px solid', 
-                                        borderColor: isOptSelected ? themeColor : '#cbd5e1', 
-                                        background: isOptSelected ? themeColor : 'white', 
-                                        color: isOptSelected ? 'white' : '#475569', 
-                                        fontSize: '0.8rem' 
-                                      }}
-                                    >
-                                      {opt.option_name}
-                                    </button>
-                                  );
-                                })}
+  // 💡 選択中判定：配列の中に自分のIDがあるかどうかをチェック
+  const selections = selectedOptions[`${service.id}-${gn}`] || [];
+  const isOptSelected = Array.isArray(selections) 
+    ? selections.some(o => o.id === opt.id)
+    : selections?.id === opt.id;
+
+  return (
+    <button 
+      key={opt.id} 
+      onClick={() => handleOptionSelect(service.id, gn, opt, idx)} 
+      style={{ 
+        padding: '10px 5px', borderRadius: '8px', border: '1px solid', 
+        // 💡 複数選択OKな場合は、見た目を少し変える（例：角を少し丸くするなど）とお客さんに伝わりやすいです
+        borderColor: isOptSelected ? themeColor : '#cbd5e1', 
+        background: isOptSelected ? themeColor : 'white', 
+        color: isOptSelected ? 'white' : '#475569', 
+        fontSize: '0.8rem',
+        boxShadow: isOptSelected ? `0 2px 4px ${themeColor}44` : 'none'
+      }}
+    >
+      {opt.option_name}
+    </button>
+  );
+})}
                               </div>
                             </div>
                           ))}

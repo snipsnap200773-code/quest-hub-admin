@@ -57,7 +57,8 @@ const MenuSettings = () => {
   const [optGroupName, setOptGroupName] = useState(''); 
   const [optName, setOptName] = useState('');                  
   const [optSlots, setOptSlots] = useState(0);
-const [optPrice, setOptPrice] = useState(0);
+  const [optPrice, setOptPrice] = useState(0);
+  const [optIsMultiple, setOptIsMultiple] = useState(false);
   const [editingOptionId, setEditingOptionId] = useState(null);
 
   /* ==========================================
@@ -275,8 +276,9 @@ const serviceData = {
     setNewServicePrice(0); 
     fetchMenuDetails(); 
     showMsg('メニューを保存しました');
-    };
+};
 
+// 🆕 修正：枝メニュー（オプション）を保存する関数
 const handleOptionSubmit = async (e) => {
     e.preventDefault();
     const payload = { 
@@ -284,32 +286,52 @@ const handleOptionSubmit = async (e) => {
       group_name: optGroupName, 
       option_name: optName, 
       additional_slots: Number(optSlots),
-      // 🆕 金額を保存対象に含めます [cite: 2026-03-08]
-      additional_price: Number(optPrice) 
+      additional_price: Number(optPrice),
+      is_multiple: optIsMultiple // 💡 ここで選択中の「単一/複数」設定を保存
     };
 
     if (editingOptionId) {
-      // 🆕 編集モード：既存のデータを更新 [cite: 2026-03-08]
+      // 編集モード
       await supabase.from('service_options').update(payload).eq('id', editingOptionId);
     } else {
       // 新規登録
       await supabase.from('service_options').insert([payload]);
     }
 
-    // 保存後は入力をリセット [cite: 2026-03-08]
+    // 保存後は入力をリセット（is_multipleはグループ内で維持したい場合が多いので、あえてリセットしない設定もアリです）
     setEditingOptionId(null);
     setOptName(''); 
     setOptSlots(0); 
     setOptPrice(0); 
     fetchMenuDetails(); 
-showMsg(editingOptionId ? '枝メニューを更新しました' : '枝メニューを追加しました');
-  };
+    showMsg(editingOptionId ? '枝メニューを更新しました' : '枝メニューを追加しました');
+};
 
-  /* ==========================================
-     🆕 追加：調整項目をDBに保存する関数 [cite: 2026-03-08]
-     ========================================== */
+// 🆕 追加：グループ単位で「単一選択 / 複数選択」を一括で切り替えるロジック
+// これにより、グループ内の全ての項目の is_multiple を一度に更新できます
+const handleToggleOptionGroupMultiple = async (serviceId, groupName, currentStatus) => {
+    try {
+      const { error } = await supabase
+        .from('service_options')
+        .update({ is_multiple: !currentStatus })
+        .eq('service_id', serviceId)
+        .eq('group_name', groupName);
 
-  // 1. 調整カテゴリを保存する
+      if (error) throw error;
+      
+      fetchMenuDetails();
+      showMsg(`グループ「${groupName || '共通'}」を${!currentStatus ? '複数選択' : '単一選択'}に切り替えました`);
+    } catch (err) {
+      console.error("グループ更新エラー:", err.message);
+      alert("設定の切り替えに失敗しました。");
+    }
+};
+
+/* ==========================================
+      🆕 追加：調整項目をDBに保存する関数 [cite: 2026-03-08]
+      ========================================== */
+
+// 1. 調整カテゴリを保存する
 const handleAdjCatSubmit = async (e) => {
     e.preventDefault();
     const payload = { name: newAdjCatName, shop_id: shopId, is_adjustment_cat: true };
@@ -756,7 +778,7 @@ const handleProdCatSubmit = async (e) => {
                     <form onSubmit={handleOptionSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                       <input placeholder="枝カテゴリ (例: シャンプー, 指名料)" value={optGroupName} onChange={(e) => setOptGroupName(e.target.value)} style={inputStyle} />
                       <input placeholder="枝メニュー名 (例: あり, 担当 A)" value={optName} onChange={(e) => setOptName(e.target.value)} style={inputStyle} required />
-<div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <span style={{ fontSize: '0.8rem', color: '#64748b' }}>追加:</span>
                           <input type="number" value={optSlots} onChange={(e) => setOptSlots(parseInt(e.target.value))} style={{ width: '60px', ...inputStyle }} />
@@ -765,23 +787,63 @@ const handleProdCatSubmit = async (e) => {
 
                         {/* 💰 🆕 枝メニューの料金入力欄を追加 [cite: 2026-03-08] */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
-                          <span style={{ fontSize: '0.8rem', color: '#64748b' }}>料金: +¥</span>
-                          <input type="number" value={optPrice} onChange={(e) => setOptPrice(Number(e.target.value))} style={{ flex: 1, ...inputStyle }} placeholder="500" />
-                        </div>
+    <span style={{ fontSize: '0.8rem', color: '#64748b' }}>料金: +¥</span>
+    <input type="number" value={optPrice} onChange={(e) => setOptPrice(Number(e.target.value))} style={{ flex: 1, ...inputStyle }} placeholder="500" />
+</div>
 
-                        <button type="submit" style={{ padding: '12px 20px', background: '#1e293b', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>
-                          {editingOptionId ? '枝を更新' : '＋ 枝追加'}
-                        </button>
+{/* 🆕 複数選択ON/OFFのスイッチを追加 */}
+<label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', padding: '0 10px' }}>
+  <input 
+    type="checkbox" 
+    checked={optIsMultiple} 
+    onChange={(e) => setOptIsMultiple(e.target.checked)} 
+    style={{ width: '18px', height: '18px' }} 
+  />
+  <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#475569' }}>複数選択を許可</span>
+</label>
+
+<button type="submit" style={{ padding: '12px 20px', background: '#1e293b', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>
+    {editingOptionId ? '枝を更新' : '＋ 枝追加'}
+</button>
                       </div>
                                           </form>
                     
 <div style={{ marginTop: '20px' }}>
                       {/* (options || []) で配列であることを保証します [cite: 2026-03-01] */}
                       {Array.from(new Set((options || []).filter(o => o && o.service_id === s.id).map(o => o.group_name || '共通'))).map(group => (
-                                                <div key={group} style={{ marginBottom: '12px' }}>
-                          <div style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#94a3b8', marginBottom: '6px' }}>▼ {group || '共通'}</div>
-                          {options.filter(o => o.service_id === s.id && o.group_name === group).map(o => (
-<div key={o.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: '#fff', borderRadius: '8px', border: '1px solid #eee', marginBottom: '4px' }}>
+<div key={group} style={{ marginBottom: '12px' }}>
+    {/* 🆕 グループヘッダーに切り替えボタンを配置 */}
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+      <div style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#94a3b8' }}>▼ {group || '共通'}</div>
+      
+      {(() => {
+        // このグループの現在の設定値を取得（最初の1件を参照）
+        const groupOptions = options.filter(o => o.service_id === s.id && o.group_name === group);
+        const isMultiple = groupOptions[0]?.is_multiple;
+        
+        return (
+          <button 
+            type="button"
+            onClick={() => handleToggleOptionGroupMultiple(s.id, group, isMultiple)}
+            style={{ 
+              fontSize: '0.65rem', 
+              padding: '4px 10px', 
+              background: isMultiple ? themeColor : '#fff', 
+              color: isMultiple ? '#fff' : '#475569', 
+              border: '1px solid #cbd5e1', 
+              borderRadius: '20px', 
+              fontWeight: 'bold', 
+              cursor: 'pointer' 
+            }}
+          >
+            {isMultiple ? '複数選択可' : '1つのみ選択'}
+          </button>
+        );
+      })()}
+    </div>
+
+    {options.filter(o => o.service_id === s.id && o.group_name === group).map(o => (
+      <div key={o.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: '#fff', borderRadius: '8px', border: '1px solid #eee', marginBottom: '4px' }}>
                               <div style={{ display: 'flex', flexDirection: 'column' }}>
                                 <span style={{ fontSize: '0.85rem', color: '#1e293b', fontWeight: 'bold' }}>{o.option_name}</span>
                                 <div style={{ display: 'flex', gap: '8px', fontSize: '0.75rem' }}>
@@ -800,6 +862,7 @@ const handleProdCatSubmit = async (e) => {
                                     setOptName(o.option_name);
                                     setOptSlots(o.additional_slots || 0);
                                     setOptPrice(o.additional_price || 0);
+                                    setOptIsMultiple(o.is_multiple || false);
                                   }} 
                                   style={{ color: '#3b82f6', border: 'none', background: 'none', cursor: 'pointer', padding: '4px' }}
                                 >

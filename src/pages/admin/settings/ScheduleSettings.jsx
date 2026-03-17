@@ -30,6 +30,12 @@ const ScheduleSettings = () => {
   const [maxCapacity, setMaxCapacity] = useState(1);
   const [allowMultiPerson, setAllowMultiPerson] = useState(true);
 
+  // ✅ 🆕 差し込み：前詰め予約モードのStateを追加
+  const [isStrictFillMode, setIsStrictFillMode] = useState(false);
+
+  // ✅ 🆕 差し込み：移動時間計算の有効・無効Stateを追加
+  const [useTravelTimeLogic, setUseTravelTimeLogic] = useState(true);
+
   // ✅ 🆕 修正1：長期休暇用のStateを追加
   const [specialHolidays, setSpecialHolidays] = useState([]);
   const [newSpecialHoliday, setNewSpecialHoliday] = useState({ name: '', start: '', end: '' });
@@ -68,6 +74,8 @@ const fetchScheduleData = async () => {
       setBufferPreparationMin(data.buffer_preparation_min || 0);
       setMinLeadTimeHours(data.min_lead_time_hours || 0);
       setAutoFillLogic(data.auto_fill_logic ?? true);
+      setIsStrictFillMode(data.is_strict_fill_mode ?? false);
+      setUseTravelTimeLogic(data.use_travel_time_logic ?? true);
       setMaxCapacity(data.max_capacity || 1);
       setAllowMultiPerson(data.allow_multi_person_reservation ?? true);
       setSpecialHolidays(data.special_holidays || []);
@@ -118,6 +126,8 @@ const fetchScheduleData = async () => {
       buffer_preparation_min: bufferPreparationMin,
       min_lead_time_hours: minLeadTimeHours,
       auto_fill_logic: autoFillLogic,
+      is_strict_fill_mode: isStrictFillMode,
+      use_travel_time_logic: useTravelTimeLogic,
       max_capacity: maxCapacity,
       allow_multi_person_reservation: allowMultiPerson
     }).eq('id', shopId);
@@ -326,6 +336,60 @@ const fetchScheduleData = async () => {
           />
           <b style={{ fontSize: '0.9rem', color: '#334155' }}>自動詰め機能を有効にする</b>
         </label>
+
+        <label 
+          style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '12px', 
+            cursor: 'pointer', 
+            padding: '10px', 
+            background: '#f8fafc', 
+            borderRadius: '12px',
+            marginTop: '10px'
+          }}
+        >
+          <input 
+            type="checkbox" 
+            checked={isStrictFillMode} 
+            onChange={(e) => setIsStrictFillMode(e.target.checked)} 
+            style={{ width: '20px', height: '20px' }} 
+          />
+          <b style={{ fontSize: '0.9rem', color: '#1e293b' }}>
+            <span style={{ color: '#ef4444' }}>⚡️</span> 前詰め予約を強制する
+          </b>
+        </label>
+        <p style={{ fontSize: '0.65rem', color: '#64748b', marginTop: '6px', marginLeft: '32px', lineHeight: '1.4' }}>
+          ※常に「最も早い空き時間」からしか予約を取れないように制限します。<br />
+          1日の予約を隙間なく埋めたい場合に有効です。
+        </p>
+
+        {/* ✅ 🆕 差し込み：移動時間の自動計算ON/OFFスイッチ */}
+        <label 
+          style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '12px', 
+            cursor: 'pointer', 
+            padding: '10px', 
+            background: '#f8fafc', 
+            borderRadius: '12px',
+            marginTop: '10px'
+          }}
+        >
+          <input 
+            type="checkbox" 
+            checked={useTravelTimeLogic} 
+            onChange={(e) => setUseTravelTimeLogic(e.target.checked)} 
+            style={{ width: '20px', height: '20px' }} 
+          />
+          <b style={{ fontSize: '0.9rem', color: '#1e293b' }}>
+            🚗 訪問時の移動時間を自動計算する
+          </b>
+        </label>
+        <p style={{ fontSize: '0.65rem', color: '#64748b', marginTop: '4px', marginLeft: '32px' }}>
+          ※ONの場合、業種が「訪問・出張」であれば自動的に移動バッファを確保します。
+        </p>
         
         {/* ✅ 🆕 補足メッセージの追加 */}
         {maxCapacity > 1 && (
@@ -334,6 +398,7 @@ const fetchScheduleData = async () => {
           </p>
         )}
       </section>
+      
 
       {/* ✅ 🆕 ここから「長期休暇セクション」を挿入 */}
       <section style={{ ...cardStyle, border: `2px solid ${themeColor}` }}>
