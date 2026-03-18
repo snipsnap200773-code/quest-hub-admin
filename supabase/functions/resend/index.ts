@@ -72,15 +72,15 @@ Deno.serve(async (req) => {
   try {
 const payload = await req.json();
     const { 
-      type, shopId, customerEmail, customerName, shopName, 
-      startTime, services, shopEmail, cancelUrl, lineUserId, 
-      notifyLineEnabled, owner_email, dashboard_url, reservations_url, 
-      reserve_url, password, ownerName, phone: ownerPhone, businessType,
-      staffName,
-      // 🆕 新しく追加された詳細項目を受け取る
-      furigana, address, parking, buildingType, careNotes, 
-      companyName, symptoms, requestDetails, notes
-    } = payload;
+  type, shopId, customerEmail, customerName, shopName, 
+  startTime, services, shopEmail, cancelUrl, lineUserId, 
+  notifyLineEnabled, owner_email, dashboard_url, reservations_url, 
+  reserve_url, password, ownerName, phone: ownerPhone, businessType,
+  staffName,
+  // 🆕 修正：custom_answers を受け取りリストに追加
+  furigana, address, parking, buildingType, careNotes, 
+  companyName, symptoms, requestDetails, notes, allOptions, custom_answers
+} = payload;
 
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? "";
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? "";
@@ -322,28 +322,79 @@ const placeholderData = {
         if (isOwner) {
           // 店舗宛
           finalSubject = applyPlaceholders(profile.mail_sub_shop_booking || `【新着予約】${customerName} 様`, placeholderData);
-          finalHtml = `
-            <div lang="ja" style="font-family: sans-serif; color: #333; line-height: 1.6; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; padding: 25px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
-              <h2 style="color: #2563eb; margin-top: 0; font-size: 1.3rem; border-bottom: 2px solid #2563eb; padding-bottom: 10px;">新着予約のお知らせ（店舗控え）</h2>
-              <p style="margin: 20px 0 10px 0;">${shopName} 管理者様</p>
-              <div style="background: #f8fafc; padding: 20px; border-radius: 10px; border: 1px solid #e2e8f0;">
-                <p style="margin: 5px 0;">👤 <b>お客様:</b> ${customerName} 様 ${furigana ? `(${furigana})` : ''}</p>
-                <p style="margin: 5px 0;">📅 <b>日時:</b> ${startTime}</p>
-                <p style="margin: 5px 0;">👤 <b>担当:</b> ${staffName || '指名なし'}</p>
-                <p style="margin: 5px 0;">📋 <b>メニュー:</b> ${services}</p>
-              </div>
-              <div style="margin-top: 20px; padding: 15px; border-left: 4px solid #cbd5e1; background: #fff;">
-                <h3 style="margin: 0 0 10px 0; font-size: 0.9rem; color: #64748b;">📝 お客様の入力内容</h3>
-                <div style="font-size: 0.9rem; color: #1e293b;">
-                  ${address ? `<p style="margin: 4px 0;">📍 <b>住所:</b> ${address}</p>` : ''}
-                  ${parking ? `<p style="margin: 4px 0;">🅿️ <b>駐車場:</b> ${parking}</p>` : ''}
-                  ${notes ? `<p style="margin: 4px 0; border-top: 1px dashed #eee; padding-top: 10px;">💬 <b>備考:</b><br>${notes}</p>` : ''}
+        
+        // 🆕 1. 枝メニュー（追加オプション）を箇条書きにするHTMLロジックを追加
+        // allOptions が配列で届いていることを想定しています
+        const optionsListHtml = allOptions && allOptions.length > 0 
+          ? `<div style="margin-top: 10px; padding: 12px; background: #ffffff; border-radius: 8px; border: 1px solid #cbd5e1;">
+               <p style="margin: 0 0 8px 0; font-size: 0.8rem; color: #64748b; font-weight: bold; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px;">枝メニュー（追加オプション）:</p>
+               <ul style="margin: 0; padding-left: 18px; font-size: 0.9rem; color: #1e293b; line-height: 1.5;">
+                 ${allOptions.map((o: any) => `
+                   <li style="margin-bottom: 2px;">
+                     ${o.option_name} 
+                     <span style="color: #d34817; font-weight: bold; font-size: 0.85rem;">
+                       (+¥${(o.additional_price || 0).toLocaleString()})
+                     </span>
+                   </li>
+                 `).join('')}
+               </ul>
+             </div>` 
+          : '';
+
+        // 🆕 2. 豪華版の店舗控えHTML
+        finalHtml = `
+          <div lang="ja" style="font-family: sans-serif; color: #333; line-height: 1.6; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; padding: 25px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+            <h2 style="color: #2563eb; margin-top: 0; font-size: 1.3rem; border-bottom: 2px solid #2563eb; padding-bottom: 10px;">新着予約のお知らせ（店舗控え）</h2>
+            <p style="margin: 20px 0 10px 0;">${shopName} 管理者様</p>
+            
+            <div style="background: #f8fafc; padding: 20px; border-radius: 10px; border: 1px solid #e2e8f0;">
+              <p style="margin: 5px 0;">👤 <b>お客様:</b> ${customerName} 様 ${furigana ? `(${furigana})` : ''}</p>
+              <p style="margin: 5px 0;">📅 <b>日時:</b> ${startTime}</p>
+              <p style="margin: 5px 0;">👤 <b>担当:</b> ${staffName || '指名なし'}</p>
+              <p style="margin: 5px 0;">📋 <b>メニュー:</b> ${services}</p>
+              
+              ${optionsListHtml} 
+
+              {/* 🆕 A: 電話ボタンの差し込み */}
+              ${payload.phone ? `
+                <div style="margin-top: 15px; border-top: 1px solid #eee; padding-top: 15px;">
+                  <a href="tel:${payload.phone}" style="display: inline-block; background: #10b981; color: #fff; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 0.9rem;">📞 お客様へ電話をかける</a>
                 </div>
+              ` : ''}
+            </div>
+
+            <div style="margin-top: 20px; padding: 15px; border-left: 4px solid #cbd5e1; background: #fff;">
+              <h3 style="margin: 0 0 10px 0; font-size: 0.9rem; color: #64748b;">📝 お客様の入力内容</h3>
+              <div style="font-size: 0.9rem; color: #1e293b;">
+                ${address ? `
+                  <p style="margin: 4px 0;">📍 <b>住所:</b> ${address}</p>
+                  {/* 🆕 B: マップボタンの差し込み */}
+                  <div style="margin: 8px 0 15px 0;">
+                    <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}" target="_blank" style="display: inline-block; background: #3b82f6; color: #fff; padding: 8px 16px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 0.85rem;">🗺 Googleマップで場所を確認</a>
+                  </div>
+                ` : ''}
+                
+                ${parking ? `<p style="margin: 4px 0;">🅿️ <b>駐車場:</b> ${parking}</p>` : ''}
+
+                {/* 🆕 C: カスタム質問回答の表示ロジック */}
+                ${custom_answers && Object.keys(custom_answers).length > 0 ? `
+                  <div style="margin-top: 15px; padding: 12px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
+                    <p style="margin: 0 0 8px 0; font-size: 0.8rem; color: #64748b; font-weight: bold;">🙋 カスタム質問への回答:</p>
+                    ${Object.entries(custom_answers).map(([qid, answer]) => {
+                      const question = profile.form_config?.custom_questions?.find((q: any) => q.id === qid);
+                      return `<p style="margin: 4px 0; font-size: 0.9rem;">・<b>${question?.label || '質問'}:</b> ${answer}</p>`;
+                    }).join('')}
+                  </div>
+                ` : ''}
+
+                ${notes ? `<p style="margin: 15px 0 4px 0; border-top: 1px dashed #eee; padding-top: 10px;">💬 <b>備考:</b><br>${notes.replace(/\n/g, '<br>')}</p>` : ''}
               </div>
-              <div style="margin-top: 25px; text-align: center;">
-                <a href="https://quest-hub-five.vercel.app/admin/${shopId}/reservations" style="display: inline-block; background: #2563eb; color: #fff; padding: 12px 25px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 0.9rem;">予約台帳で確認する</a>
-              </div>
-            </div>`;
+            </div>
+
+            <div style="margin-top: 25px; text-align: center;">
+              <a href="https://quest-hub-five.vercel.app/admin/${shopId}/reservations" style="display: inline-block; background: #2563eb; color: #fff; padding: 12px 25px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 0.9rem;">予約台帳で確認する</a>
+            </div>
+          </div>`;
         } else {
           // お客様宛（サンクスメール）
           const subTemplate = profile.mail_sub_customer_booking || defaults.booking_sub;
@@ -405,9 +456,12 @@ const placeholderData = {
     if (notifyLineEnabled === true && currentToken && currentAdminId) {
       let detailsText = address ? `\n📍 住: ${address}` : "";
       if (notes) detailsText += `\n💬 備: ${notes}`;
+      const phoneUrl = payload.phone ? `\n📞 呼: tel:${payload.phone}` : "";
+      const mapUrl = address ? `\n🗺 地: https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}` : "";
+
       const shopMsg = type === 'cancel' 
         ? `【予約キャンセル】\n👤 客: ${customerName} 様\n📅 日: ${startTime}〜`
-        : `【新着予約】\n👤 客: ${customerName} 様${detailsText}\n📅 日: ${startTime}〜\n📋 メ: ${services}`;
+        : `【新着予約】\n👤 客: ${customerName} 様${detailsText}\n📅 日: ${startTime}〜\n📋 メ: ${services}${phoneUrl}${mapUrl}`;
       
       shopLineSent = await safePushToLine(currentAdminId, shopMsg, currentToken, "OWNER");
     }

@@ -90,14 +90,16 @@ const [selectedCustomer, setSelectedCustomer] = useState(null);
   });
 
   // ✅ 🆕 追加：カレンダー版からコピーしたヘルパー関数
-  const getFieldConfig = (key) => {
+  const shouldShowInAdmin = (key) => {
+    // 1. 基本の4項目は常に表示
+    const basicFields = ['name', 'furigana', 'email', 'phone'];
+    if (basicFields.includes(key)) return true;
+    // 2. それ以外は「必須」設定の場合のみ表示
     const cfg = shop?.form_config?.[key];
-    if (!cfg) return { show: false, label: '' };
-    return {
-      show: cfg.enabled || cfg.line_enabled,
-      label: cfg.label
-    };
+    return cfg?.required === true;
   };
+
+  const getFieldLabel = (key) => shop?.form_config?.[key]?.label || key;
     
   // 🆕 名寄せ（マージ）確認用
   const [mergeCandidate, setMergeCandidate] = useState(null); 
@@ -229,48 +231,48 @@ const openDetail = async (res) => {
   };
 
 const finalizeOpenDetail = async (res, cust) => {
+    // 💡 1. プライベート予定（休憩など）の場合は専用の処理
     if (res.res_type === 'private_task') {
       setSelectedCustomer(null);
       setEditFields({ 
         name: res.title, admin_name: '', phone: '', email: '', 
-        memo: res.note || '', line_user_id: null 
+        memo: res.note || '', line_user_id: null, custom_answers: {} 
       });
       setCustomerHistory([]); setShowDetailModal(true); return;
     }
 
-    // ✅ 🆕 修正：予約時の詳細項目(visit_info)を抽出
+    // 💡 2. 予約データ(res)の options カラムから詳細情報を引っ張り出す
     const visitInfo = res.options?.visit_info || {};
 
+    // 🆕 3. 修正の核心：全ての項目 ＆ カスタム質問を State (editFields) にまとめる
+    // 名簿データ(cust)を優先しつつ、予約時データ(visitInfo/res)で補完します
+    const allFields = {
+      name: cust ? (cust.name || res.customer_name) : res.customer_name,
+      admin_name: cust?.admin_name || '',
+      furigana: cust?.furigana || visitInfo.furigana || '',
+      phone: cust?.phone || res.customer_phone || '',
+      email: cust?.email || res.customer_email || '',
+      zip_code: cust?.zip_code || visitInfo.zip_code || '', // 👈 郵便番号を追加
+      address: cust?.address || visitInfo.address || '', 
+      parking: cust?.parking || visitInfo.parking || '', 
+      building_type: cust?.building_type || visitInfo.building_type || '', // 👈 建物種別を追加
+      care_notes: cust?.care_notes || visitInfo.care_notes || '',           // 👈 介助状況を追加
+      company_name: cust?.company_name || visitInfo.company_name || '',     // 👈 会社名を追加
+      symptoms: cust?.symptoms || visitInfo.symptoms || '', 
+      request_details: cust?.request_details || visitInfo.request_details || '', 
+      memo: cust?.memo || '',
+      line_user_id: cust?.line_user_id || res.line_user_id || null,
+      // 💡 最重要：カスタム質問の回答をセット
+      custom_answers: visitInfo.custom_answers || cust?.custom_answers || {}
+    };
+
+    // 💡 4. 作成した allFields を State に反映
     if (cust) {
       setSelectedCustomer(cust);
-      setEditFields({ 
-        name: cust.name || res.customer_name,
-        admin_name: cust.admin_name || '',
-        furigana: cust.furigana || visitInfo.furigana || '',
-        phone: cust.phone || '', 
-        email: cust.email || '', 
-        address: cust.address || visitInfo.address || '', 
-        parking: cust.parking || visitInfo.parking || '', 
-        symptoms: cust.symptoms || visitInfo.symptoms || '', 
-        request_details: cust.request_details || visitInfo.request_details || '', 
-        memo: cust.memo || '',
-        line_user_id: cust.line_user_id || res.line_user_id || null
-      });
+      setEditFields(allFields);
     } else {
       setSelectedCustomer(null);
-      setEditFields({ 
-        name: res.customer_name, 
-        admin_name: '',
-        furigana: visitInfo.furigana || '',
-        phone: res.customer_phone || '', 
-        email: res.customer_email || '', 
-        address: visitInfo.address || '', 
-        parking: visitInfo.parking || '', 
-        symptoms: visitInfo.symptoms || '', 
-        request_details: visitInfo.request_details || '', 
-        memo: '',
-        line_user_id: res.line_user_id || null
-      });
+      setEditFields(allFields);
     }
 
     const { data: history } = await supabase
@@ -927,22 +929,69 @@ if (startingHere.length === 1) {
                       </>
                     )}
 
-                    <label style={labelStyle}>お客様名</label>
-                    <input type="text" value={editFields.name} onChange={(e) => setEditFields({...editFields, name: e.target.value})} style={inputStyle} />
-                    
-                    <label style={labelStyle}>電話番号</label>
-                    <input type="tel" value={editFields.phone} onChange={(e) => setEditFields({...editFields, phone: e.target.value})} style={inputStyle} placeholder="未登録" />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      {(() => {
+                        // 三土手さん理想の順番
+                        const fieldOrder = [
+                          'name', 'furigana', 'email', 'phone', 
+                          'zip_code', 'address', 'parking', 
+                          'building_type', 'care_notes', 'company_name', 
+                          'symptoms', 'request_details'
+                        ];
 
-                    {/* 動的詳細項目（住所など） */}
-                    {getFieldConfig('address').show && (
-                      <div style={{ marginTop: '10px' }}>
-                        <label style={labelStyle}>🏠 {getFieldConfig('address').label}</label>
-                        <input type="text" value={editFields.address} onChange={(e) => setEditFields({...editFields, address: e.target.value})} style={inputStyle} />
+                        return fieldOrder.map((key) => {
+                          if (!shouldShowInAdmin(key)) return null;
+
+                          return (
+                            <div key={key}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                                <label style={{ ...labelStyle, marginBottom: 0 }}>{getFieldLabel(key)}</label>
+                                
+                                {key === 'phone' && editFields.phone && (
+                                  <a href={`tel:${editFields.phone}`} style={badgeStyle('#10b981')}>電話 📞</a>
+                                )}
+                                {key === 'address' && editFields.address && (
+                                  <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(editFields.address)}`} target="_blank" rel="noopener noreferrer" style={badgeStyle('#3b82f6')}>マップ 📍</a>
+                                )}
+                              </div>
+                              
+                              {key === 'parking' ? (
+                                <select value={editFields[key] || ''} onChange={(e) => setEditFields({...editFields, [key]: e.target.value})} style={inputStyle}>
+                                  <option value="">未選択</option>
+                                  <option value="あり">あり</option>
+                                  <option value="なし">なし</option>
+                                </select>
+                              ) : (
+                                <input type={key === 'email' ? 'email' : key === 'phone' ? 'tel' : 'text'} value={editFields[key] || ''} onChange={(e) => setEditFields({...editFields, [key]: e.target.value})} style={inputStyle} placeholder="未登録" />
+                              )}
+                            </div>
+                          );
+                        });
+                      })()}
+
+                      {/* 🆕 カスタム質問の回答表示 */}
+                      {shop?.form_config?.custom_questions?.map((q) => {
+                        const answer = editFields.custom_answers?.[q.id];
+                        if (q.required || answer) {
+                          return (
+                            <div key={q.id} style={{ background: '#fff', padding: '12px', borderRadius: '12px', border: q.required ? `2px solid ${themeColor}33` : '1px solid #e2e8f0', marginTop: '5px' }}>
+                              <label style={{ ...labelStyle, color: q.required ? themeColor : '#64748b', marginBottom: '8px' }}>
+                                🙋 {q.label} {q.required && <span style={{ color: '#ef4444' }}>(必須)</span>}
+                              </label>
+                              <div style={{ fontSize: '1rem', fontWeight: 'bold', color: '#1e293b' }}>
+                                {answer || <span style={{ color: '#cbd5e1', fontWeight: 'normal' }}>未回答</span>}
+                              </div>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })}
+
+                      <div>
+                        <label style={labelStyle}>顧客メモ（マスタ共通・内部用）</label>
+                        <textarea value={editFields.memo} onChange={(e) => setEditFields({...editFields, memo: e.target.value})} style={{ ...inputStyle, height: '100px' }} placeholder="管理者用の控えメモです" />
                       </div>
-                    )}
-
-                    <label style={labelStyle}>顧客メモ（共通）</label>
-                    <textarea value={editFields.memo} onChange={(e) => setEditFields({...editFields, memo: e.target.value})} style={{ ...inputStyle, height: '100px' }} placeholder="好み、注意事項など" />
+                    </div>
                     
                     <button onClick={handleUpdateCustomer} style={{ width: '100%', padding: '12px', background: themeColor, color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', marginTop: '10px' }}>情報を保存</button>
                     <button onClick={() => deleteRes(selectedRes.id)} style={{ width: '100%', padding: '12px', background: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', marginTop: '10px' }}>予約を消去 ＆ 名簿掃除</button>
@@ -1080,6 +1129,23 @@ if (startingHere.length === 1) {
 
 // スタイル (省略なし)
 const switchBtnStyle = (active) => ({ padding: '5px 15px', borderRadius: '6px', border: 'none', background: active ? '#fff' : 'transparent', fontWeight: 'bold', fontSize: '0.75rem', cursor: 'pointer', boxShadow: active ? '0 2px 4px rgba(0,0,0,0.1)' : 'none', color: active ? '#1e293b' : '#64748b' });
+
+// 🆕 ここに差し込み：電話やマップの小さなボタン用スタイル
+const badgeStyle = (color) => ({
+  textDecoration: 'none',
+  background: color,
+  color: '#fff',
+  padding: '2px 10px',
+  borderRadius: '6px',
+  fontSize: '0.65rem',
+  fontWeight: 'bold',
+  display: 'flex',
+  alignItems: 'center',
+  boxShadow: `0 2px 4px ${color}33`, // ボタンの色に合わせた薄い影
+  transition: 'transform 0.1s active',
+  cursor: 'pointer'
+});
+
 const navBtnStyle = { background: '#f1f5f9', border: 'none', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' };
 const overlayStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' };
 const modalContentStyle = { background: '#fff', width: '95%', borderRadius: '25px', padding: '30px', maxHeight: '85vh', overflowY: 'auto' };

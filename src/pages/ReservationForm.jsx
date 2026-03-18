@@ -594,12 +594,21 @@ const handleNextStep = () => {
                 ))}
               </h4>
               <div style={{ display: 'grid', gap: '10px' }}>
-                {services.filter(s => s.category === cat.name).map(service => {
-                  const isSelected = selectedServices.find(s => s.id === service.id);
-                  const groupedOpts = getGroupedOptions(service.id);
-                  return (
-                    <div key={service.id} ref={el => serviceRefs.current[service.id] = el} 
-                         style={{ border: isSelected ? `2px solid ${themeColor}` : '1px solid #ddd', borderRadius: '12px', background: 'white' }}>
+                {services
+  .filter(s => s.category === cat.name)
+  // 🆕 ここに管理者専用メニューの表示フィルターを追加
+  .filter(service => {
+    // 管理者モード（ねじ込み）なら、全てのメニューを表示する
+    if (isAdminMode) return true;
+    // 一般ユーザーモードなら、is_admin_only が true のメニューを除外する
+    return !service.is_admin_only;
+  })
+  .map(service => {
+    const isSelected = selectedServices.find(s => s.id === service.id);
+    const groupedOpts = getGroupedOptions(service.id);
+    return (
+      <div key={service.id} ref={el => serviceRefs.current[service.id] = el} 
+           style={{ border: isSelected ? `2px solid ${themeColor}` : '1px solid #ddd', borderRadius: '12px', background: 'white' }}>
                       <button disabled={isDisabled} onClick={() => toggleService(service, idx)} style={{ width: '100%', padding: '15px', border: 'none', background: 'none', textAlign: 'left' }}>
                         <div style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '10px' }}>
                           <div style={{ 

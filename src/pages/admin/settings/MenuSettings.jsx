@@ -48,6 +48,10 @@ const MenuSettings = () => {
   const [selectedCategory, setSelectedCategory] = useState('');
   const [editingServiceId, setEditingServiceId] = useState(null);
 
+  // 🆕 追加：1日貸切モード用のState
+  const [isFullDay, setIsFullDay] = useState(false);
+  const [isAdminOnly, setIsAdminOnly] = useState(false); // 🆕 追加：管理者専用State
+
   // ✅ 🆕 差し込み：時間制限用のStateを追加
   const [useRestriction, setUseRestriction] = useState(false);
   const [timeRanges, setTimeRanges] = useState([{ start: '08:00', end: '09:00' }]);
@@ -264,7 +268,10 @@ const serviceData = {
   price: Number(newServicePrice), 
   category: finalCategory,
   // ✅ 🆕 修正：入力された時間範囲の配列を保存
-  restricted_hours: useRestriction ? timeRanges : null
+  restricted_hours: useRestriction ? timeRanges : null,
+  // 🆕 追加：1日貸切フラグを保存
+  is_full_day: isFullDay,
+  is_admin_only: isAdminOnly
 };
     if (editingServiceId) await supabase.from('services').update(serviceData).eq('id', editingServiceId);
     else await supabase.from('services').insert([{ ...serviceData, sort_order: services.length }]);
@@ -274,6 +281,8 @@ const serviceData = {
     setNewServiceName(''); 
     setNewServiceSlots(1); 
     setNewServicePrice(0); 
+    setIsFullDay(false);
+    setIsAdminOnly(false);
     fetchMenuDetails(); 
     showMsg('メニューを保存しました');
 };
@@ -692,7 +701,47 @@ const handleProdCatSubmit = async (e) => {
             )}
           </div>
 
-          <div style={{ marginBottom: '20px' }}>
+          {/* 🆕 1日貸切モードの設定UIを追加 */}
+          <div style={{ marginBottom: '20px', padding: '15px', background: isFullDay ? '#fff7ed' : '#f8fafc', borderRadius: '12px', border: isFullDay ? '1px solid #ffedd5' : '1px solid #e2e8f0' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+              <input 
+                type="checkbox" 
+                checked={isFullDay} 
+                onChange={(e) => setIsFullDay(e.target.checked)} 
+                style={{ width: '18px', height: '18px' }} 
+              />
+              <div>
+                <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: isFullDay ? '#c2410c' : '#334155' }}>
+                  このメニューで1日（許可時間内）を貸切にする
+                </span>
+                <p style={{ margin: '4px 0 0', fontSize: '0.7rem', color: '#64748b' }}>
+                  ※予約が入った際、設定された受付時間内の全スロットを自動で埋めます。
+                </p>
+              </div>
+            </label>
+          </div>
+
+          {/* 🆕 管理者専用モードの設定UIを追加 */}
+<div style={{ marginBottom: '20px', padding: '15px', background: isAdminOnly ? '#f1f5f9' : '#fff', borderRadius: '12px', border: isAdminOnly ? `2px solid #64748b` : '1px solid #e2e8f0' }}>
+  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+    <input 
+      type="checkbox" 
+      checked={isAdminOnly} 
+      onChange={(e) => setIsAdminOnly(e.target.checked)} 
+      style={{ width: '18px', height: '18px' }} 
+    />
+    <div>
+      <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: isAdminOnly ? '#1e293b' : '#334155' }}>
+        【管理者専用】ねじ込み予約のみに表示する
+      </span>
+      <p style={{ margin: '4px 0 0', fontSize: '0.7rem', color: '#64748b' }}>
+        ※ONにすると、一般の予約フォームからはこのメニューが見えなくなります。
+      </p>
+    </div>
+  </label>
+</div>
+
+          <div style={{ marginBottom: '20px' }}>
             <label style={{ fontSize: '0.85rem', fontWeight: 'bold', display: 'block', marginBottom: '10px', color: '#64748b' }}>
               
               必要コマ数: <span style={{ color: themeColor, fontSize: '1.1rem' }}>{newServiceSlots}コマ（{newServiceSlots * slotIntervalMin}分）</span>
@@ -750,6 +799,8 @@ const handleProdCatSubmit = async (e) => {
                         setNewServiceSlots(s.slots); 
                         setNewServicePrice(s.price || 0); 
                         setSelectedCategory(s.category); 
+                        setIsFullDay(s.is_full_day || false);
+                        setIsAdminOnly(s.is_admin_only || false);
                         
                         // ✅ 🆕 差し込み：制限データの復元
                         if (s.restricted_hours) {

@@ -240,8 +240,56 @@ function TimeSelectionCalendar() {
     const interval = shop.slot_interval_min || 15;
     const buffer = shop.buffer_preparation_min || 0;
     // 💡 作業時間 ＋ 移動バッファ
-    const totalMinRequired = (totalSlotsNeeded * interval) + buffer + (travelTimeMinutes || 0);
-    const potentialEndTime = new Date(targetDateTime.getTime() + totalMinRequired * 60 * 1000);
+    const getCalculatedTotalSlots = () => {
+      if (!people || people.length === 0) return totalSlotsNeeded;
+      return people.reduce((sum, p) => {
+        const serviceSlots = (p.services || []).reduce((s, serv) => s + (serv.slots || 0), 0);
+        const optionSlots = Object.values(p.options || {}).flat().reduce((o, opt) => o + (opt?.additional_slots || 0), 0);
+        return sum + serviceSlots + optionSlots;
+      }, 0);
+    };
+
+    const effectiveTotalSlots = getCalculatedTotalSlots();
+
+    // 🆕 1日貸切モード(is_full_day)の判定ロジック
+    const selectedServicesInCurrentSelection = (people || []).flatMap(p => p.services || []);
+    const fullDayMenu = selectedServicesInCurrentSelection.find(s => s.is_full_day);
+
+    let totalMinRequired;
+
+    if (fullDayMenu) {
+      // 💡 1日貸切の場合：その日に既存の予約が1件でも入っていたら「×（予約不可）」にする
+      const hasAnyExistingRes = existingReservations.some(res => {
+        const resDate = new Date(res.start_time).toLocaleDateString('sv-SE');
+        const isSameStaff = !targetStaff || res.staff_id === targetStaff.id;
+        return resDate === dateStr && isSameStaff;
+      });
+
+      if (hasAnyExistingRes) return { status: 'booked', label: '×', remaining: 0 };
+
+      // 💡 占有時間を「許可された時間枠の終了」まで引き延ばす
+      if (fullDayMenu.restricted_hours && fullDayMenu.restricted_hours.length > 0) {
+        // 現在の枠が含まれる許可時間帯を探す
+        const activeRange = fullDayMenu.restricted_hours.find(r => timeStr >= r.start && timeStr < r.end);
+        if (activeRange) {
+          const [startH, startM] = timeStr.split(':').map(Number);
+          const [endH, endM] = activeRange.end.split(':').map(Number);
+          totalMinRequired = (endH * 60 + endM) - (startH * 60 + startM);
+        } else {
+          return { status: 'none', remaining: 0 }; // 許可時間外
+        }
+      } else {
+        // 許可時間の制限がない場合は「閉店時間」までを占有
+        const [startH, startM] = timeStr.split(':').map(Number);
+        const [closeH, closeM] = closeTime.split(':').map(Number);
+        totalMinRequired = (closeH * 60 + closeM) - (startH * 60 + startM);
+      }
+    } else {
+      // 通常メニューの場合は従来のコマ数計算
+      totalMinRequired = (effectiveTotalSlots * interval) + buffer + (travelTimeMinutes || 0);
+    }
+
+    const potentialEndTime = new Date(targetDateTime.getTime() + totalMinRequired * 60 * 1000);
 
     // 開始から終了までの全スロットを1コマずつ精査
     for (let t = targetDateTime.getTime(); t < potentialEndTime.getTime(); t += interval * 60 * 1000) {

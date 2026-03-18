@@ -339,10 +339,22 @@ const handleReserve = async () => {
       }
 
       // --- ここから下は既存の保存処理 ---
-      const menuLabel = people && people.length > 1
-      
-        ? people.map((p, i) => `${i + 1}人目: ${p.fullName}`).join(' / ')
-        : (people && people[0]?.fullName || 'メニューなし');
+      const getDetailedMenuLabel = () => {
+        if (!people || people.length === 0) return 'メニューなし';
+        
+        return people.map((p, i) => {
+          const personPrefix = people.length > 1 ? `${i + 1}人目: ` : '';
+          const mainService = p.services.map(s => s.name).join(', ');
+          
+          // 💡 optionsが配列(複数選択)でもオブジェクト(単一選択)でも対応
+          const allOpts = Object.values(p.options || {}).flat().filter(Boolean);
+          const optNames = allOpts.map(o => o.option_name).join(', ');
+          
+          return optNames ? `${personPrefix}${mainService}（${optNames}）` : `${personPrefix}${mainService}`;
+        }).join(' / ');
+      };
+
+      const menuLabel = getDetailedMenuLabel();
 
       // --- 3. 日時と終了バッファの計算 ---
       const targetDate = adminDate || date;
@@ -350,10 +362,41 @@ const handleReserve = async () => {
       const startDateTime = new Date(`${targetDate}T${targetTime}:00`);
       
 // 🆕 日時と終了バッファの計算（準備時間を確実に含める）
-const interval = shop.slot_interval_min || 15;
+// 🆕 1日貸切モード対応：終了時刻の算出ロジック
+    const interval = shop.slot_interval_min || 15;
     const buffer = shop.buffer_preparation_min || 0;
-    // ✅ 修正：メニュー時間 ＋ 準備時間 ＋ 移動時間をすべて足して終了時刻を決定する
-    const totalMinutes = (totalSlotsNeeded * interval) + buffer + (travelTimeMinutes || 0);
+
+    // 現在選択されている全メニューの中から「1日貸切」設定のものを探す
+    const selectedServicesList = (people || []).flatMap(p => p.services || []);
+    const fullDayMenu = selectedServicesList.find(s => s.is_full_day);
+
+    let totalMinutes;
+
+    if (fullDayMenu) {
+      // 💡 1日貸切の場合
+      if (fullDayMenu.restricted_hours && fullDayMenu.restricted_hours.length > 0) {
+        // 設定された「受付時間制限」の終了時刻までを占有
+        const activeRange = fullDayMenu.restricted_hours.find(r => targetTime >= r.start && targetTime < r.end);
+        if (activeRange) {
+          const [startH, startM] = targetTime.split(':').map(Number);
+          const [endH, endM] = activeRange.end.split(':').map(Number);
+          totalMinutes = (endH * 60 + endM) - (startH * 60 + startM);
+        } else {
+          totalMinutes = (totalSlotsNeeded * interval) + buffer + (travelTimeMinutes || 0);
+        }
+      } else {
+        // 制限がない場合は「店舗の閉店時間」までを占有
+        const dayOfWeek = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date(targetDate).getDay()];
+        const closeTime = shop.business_hours[dayOfWeek]?.close || "18:00";
+        const [startH, startM] = targetTime.split(':').map(Number);
+        const [closeH, closeM] = closeTime.split(':').map(Number);
+        totalMinutes = (closeH * 60 + closeM) - (startH * 60 + startM);
+      }
+    } else {
+      // 通常メニューの場合
+      totalMinutes = (totalSlotsNeeded * interval) + buffer + (travelTimeMinutes || 0);
+    }
+
     const endDateTime = new Date(startDateTime.getTime() + totalMinutes * 60000);
           
       const cancelToken = crypto.randomUUID();
@@ -506,6 +549,8 @@ const interval = shop.slot_interval_min || 15;
                                       ? existingCust.name 
                                       : customerData.name;
 
+        const allFlattenedOptions = people.flatMap(p => Object.values(p.options || {}).flat()).filter(Boolean);
+
         await supabaseAnon.functions.invoke('resend', {
           body: {
             type: 'booking', 
@@ -515,12 +560,14 @@ const interval = shop.slot_interval_min || 15;
             shopName: customShopName || shop.business_name, // 🆕 追加
             startTime: `${targetDate.replace(/-/g, '/')} ${targetTime}`,
             services: menuLabel,
+            allOptions: allFlattenedOptions,
             customerEmail: customerData.email, // 🆕 これがないとお客様に届きません！
             shopEmail: shop.email_contact,     // 🆕 これがないと店舗に届きません！
             lineUserId: lineUser?.userId || null,
             cancelUrl: cancelUrl,
             // 🆕 フォームの全入力データを送る
             ...customerData, 
+            custom_answers: customAnswers,
             buildingType: customerData.building_type, // 変数名の微調整
             careNotes: customerData.care_notes,
             requestDetails: customerData.request_details

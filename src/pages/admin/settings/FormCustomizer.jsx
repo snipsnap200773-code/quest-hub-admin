@@ -87,10 +87,34 @@ const CustomFieldItem = ({ field, themeColor, updateCustomField, deleteCustomFie
           <input type="text" value={field.options} onChange={(e) => updateCustomField(field.id, 'options', e.target.value)} style={inputStyle} />
         </div>
       </div>
-      <div style={{ display: 'flex', gap: '20px' }}>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}><span style={{fontSize:'0.7rem'}}>Web:</span><button onClick={()=>updateCustomField(field.id,'enabled',!field.enabled)} style={{border:'none',background:'none',cursor:'pointer'}}>{field.enabled ? <ToggleRight size={28} color={themeColor}/> : <ToggleLeft size={28} color="#ccc"/>}</button></div>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}><span style={{fontSize:'0.7rem'}}>LINE:</span><button onClick={()=>updateCustomField(field.id,'line_enabled',!field.line_enabled)} style={{border:'none',background:'none',cursor:'pointer'}}>{field.line_enabled ? <ToggleRight size={28} color="#16a34a"/> : <ToggleLeft size={28} color="#ccc"/>}</button></div>
-      </div>
+      <div style={{ display: 'flex', gap: '25px', borderTop: '1px solid #e2e8f0', paddingTop: '15px' }}>
+        {/* 🆕 必須設定の追加 */}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <span style={{ fontSize: '0.7rem', color: '#ef4444', fontWeight: 'bold' }}>必須:</span>
+          <button 
+            onClick={() => updateCustomField(field.id, 'required', !field.required)} 
+            style={{ border: 'none', background: 'none', cursor: 'pointer', color: field.required ? '#ef4444' : '#cbd5e1' }}
+          >
+            {field.required ? <ToggleRight size={32} /> : <ToggleLeft size={32} />}
+          </button>
+        </div>
+
+        {/* Web設定 */}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 'bold' }}>Web:</span>
+          <button onClick={() => updateCustomField(field.id, 'enabled', !field.enabled)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: field.enabled ? themeColor : '#cbd5e1' }}>
+            {field.enabled ? <ToggleRight size={32} /> : <ToggleLeft size={32} />}
+          </button>
+        </div>
+
+        {/* LINE設定 */}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <span style={{ fontSize: '0.7rem', color: '#16a34a', fontWeight: 'bold' }}>LINE:</span>
+          <button onClick={() => updateCustomField(field.id, 'line_enabled', !field.line_enabled)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: field.line_enabled ? '#16a34a' : '#cbd5e1' }}>
+            {field.line_enabled ? <ToggleRight size={32} /> : <ToggleLeft size={32} />}
+          </button>
+        </div>
+      </div>
     </div>
   );
 };
