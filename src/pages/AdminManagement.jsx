@@ -358,39 +358,88 @@ const openCheckout = (res) => {
 
 const completePayment = async () => {
     try {
+      setIsSavingMemo(true);
+
+      // 1. 基本情報の整理（名前はeditFieldsを優先）
       const totalSlots = checkoutServices.reduce((sum, s) => sum + (s.slots ?? 0), 0);
       const endTime = new Date(new Date(selectedRes.start_time).getTime() + totalSlots * (shop.slot_interval_min || 15) * 60000);
-      
+      const normalizedName = (editFields.name || selectedRes.customer_name).replace(/　/g, ' ').trim();
+
+      // 2. メニュー名の組み立て（枝分かれ込み）
       const currentBaseName = checkoutServices.map(s => s.name).join(', ');
       const info = parseReservationDetails(selectedRes);
       const branchNames = info.subItems.map(o => o.option_name).filter(Boolean);
       const dbMenuName = branchNames.length > 0 ? `${currentBaseName}（${branchNames.join(', ')}）` : currentBaseName;
 
-// ✅ 1. 予約ステータスを更新（古いメニュー情報を新しいレジの内容で完全に上書き）
+      // --- 🆕 ステップA：顧客名簿（マスタ）の自動登録・更新（名寄せ） ---
+      let targetCustomerId = selectedCustomer?.id;
+      
+      // まだIDが紐付いていない場合、名前で検索してみる
+      if (!targetCustomerId) {
+        const { data: existingCust } = await supabase
+          .from('customers')
+          .select('id')
+          .eq('shop_id', cleanShopId)
+          .eq('name', normalizedName)
+          .maybeSingle();
+        targetCustomerId = existingCust?.id;
+      }
+
+      const customerPayload = {
+        shop_id: cleanShopId,
+        name: normalizedName,
+        furigana: editFields.furigana,
+        phone: editFields.phone || selectedRes.customer_phone,
+        email: editFields.email || selectedRes.customer_email,
+        address: editFields.address,
+        zip_code: editFields.zip_code,
+        parking: editFields.parking,
+        building_type: editFields.building_type,
+        care_notes: editFields.care_notes,
+        company_name: editFields.company_name,
+        symptoms: editFields.symptoms,
+        request_details: editFields.request_details,
+        memo: editFields.memo,
+        updated_at: new Date().toISOString()
+      };
+
+      if (targetCustomerId) {
+        customerPayload.id = targetCustomerId;
+      }
+
+      // 名簿を更新（なければ新規作成、あれば上書き）
+      const { data: savedCust } = await supabase
+        .from('customers')
+        .upsert(customerPayload, { onConflict: 'id' })
+        .select()
+        .single();
+      
+      const finalCustomerId = savedCust?.id || targetCustomerId;
+
+      // --- 🆕 ステップB：予約データ（reservations）を確定内容で上書き ＆ ID紐付け ---
       await supabase.from('reservations').update({ 
         total_price: finalPrice, 
         status: 'completed', 
+        customer_id: finalCustomerId, // ここでガッチリ名簿と繋ぐ！
+        customer_name: normalizedName,
         total_slots: totalSlots, 
         end_time: endTime.toISOString(), 
-        menu_name: dbMenuName, // 枝分かれ込みの新しい名前に上書き
+        menu_name: dbMenuName,
         options: { 
-          // 🆕 ここを「お会計時の内容」だけに絞ることで、本家の古いメニューを消し去ります
+          // visit_info(アンケート結果など)は維持しつつ、お会計内容を保存
+          ...(selectedRes.options || {}),
           services: checkoutServices, 
           adjustments: checkoutAdjustments, 
           products: checkoutProducts, 
           options: checkoutOptions,
-          isUpdatedFromCheckout: true // お会計で更新した目印（任意）
+          isUpdatedFromCheckout: true
         }
       }).eq('id', selectedRes.id);
 
-      const { data: cust } = await supabase.from('customers').select('id').eq('shop_id', cleanShopId).eq('name', selectedRes.customer_name).maybeSingle();
+      // --- ステップC：売上データ（sales）の記録 ---
       const serviceAmt = checkoutServices.reduce((sum, s) => sum + (Number(s.price) || 0), 0);
       const productAmt = checkoutProducts.reduce((sum, p) => sum + (Number(p.price) || 0), 0);
       
-      // ==========================================
-      // ✅ 2. 【最重要：二重登録防止】
-      // すでにこの予約の売上データがあるか確認
-      // ==========================================
       const { data: existingSale } = await supabase
         .from('sales')
         .select('id')
@@ -400,7 +449,7 @@ const completePayment = async () => {
       const salePayload = { 
         shop_id: cleanShopId, 
         reservation_id: selectedRes.id, 
-        customer_id: cust?.id || null, 
+        customer_id: finalCustomerId, 
         total_amount: finalPrice, 
         service_amount: serviceAmt, 
         product_amount: productAmt, 
@@ -409,21 +458,25 @@ const completePayment = async () => {
       };
 
       if (existingSale) {
-        // すでにお会計済みなら「更新」
         await supabase.from('sales').update(salePayload).eq('id', existingSale.id);
       } else {
-        // 初めてのお会計なら「新規登録」
         await supabase.from('sales').insert([salePayload]);
+        // 初回確定時のみマスタの来店回数を+1
+        if (finalCustomerId) {
+          const { data: cData } = await supabase.from('customers').select('total_visits').eq('id', finalCustomerId).single();
+          await supabase.from('customers').update({ total_visits: (cData?.total_visits || 0) + 1 }).eq('id', finalCustomerId);
+        }
       }
-      // ==========================================
-      
-      alert("お会計を確定しました。"); 
+
+      alert("お会計と名簿更新が完了しました！✨"); 
       setIsCheckoutOpen(false); 
       fetchInitialData();
     } catch (err) { 
       alert("確定失敗: " + err.message); 
+    } finally {
+      setIsSavingMemo(false);
     }
-};
+  };
 
   // 🆕 ここから追加：お会計リセット機能
   const handleResetCheckout = () => {
@@ -659,6 +712,16 @@ const completePayment = async () => {
   };
 
   const handleDateChangeUI = (days) => { const d = new Date(selectedDate); d.setDate(d.getDate() + days); setSelectedDate(d.toLocaleDateString('sv-SE')); };
+
+  // 🆕 修正：開いているポップアップをすべて強制終了する関数
+  const closeAllPopups = () => {
+    setIsCustomerInfoOpen(false); // 顧客カルテ
+    setIsCheckoutOpen(false);     // レジ
+    setIsMenuPopupOpen(false);     // メニュー変更
+    setStaffPickerRes(null);      // スタッフ選択
+    setSelectedMonthData(null);    // 売上分析の詳細
+  };
+
 return (
     <div style={fullPageWrapper} translate="no" className="notranslate">
       
@@ -705,7 +768,13 @@ return (
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
 {activeMenu === 'work' && (
-          <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+  <div style={{ 
+    display: 'flex', 
+    flexDirection: 'column', 
+    height: '100%', 
+    // 🆕 修正：スマホの時だけ下を80px空けて、ボトムナビを避ける
+    paddingBottom: isPC ? '0' : '80px' 
+  }}>
             
             {/* 🚀 ヘッダー部分：スマホではボタンを小さく、分析ボタンを追加 */}
             <div style={{ 
@@ -946,7 +1015,14 @@ return (
         )}
 
         {activeMenu === 'customers' && (
-          <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#f0f2f5' }}>
+  <div style={{ 
+    display: 'flex', 
+    flexDirection: 'column', 
+    height: '100%', 
+    background: '#f0f2f5',
+    // 🆕 修正：スマホの時だけ下を80px空けて、ボトムナビを避ける
+    paddingBottom: isPC ? '0' : '80px' 
+  }}>
             {/* ヘッダー：青系のデザインで名簿らしさを演出 */}
             <div style={{ 
               background: '#4285f4', 
@@ -991,41 +1067,51 @@ return (
                 gap: '15px' 
               }}>
                 {allCustomers
-                  .filter(c => c.name.includes(searchTerm) || (c.phone && c.phone.includes(searchTerm)))
-                  .map(cust => (
-                    <div 
-                      key={cust.id} 
-                      onClick={() => openCustomerInfo({ customer_name: cust.name })} 
-                      style={{ 
-                        background: '#fff', 
-                        padding: '18px', 
-                        borderRadius: '16px', 
-                        boxShadow: '0 4px 6px rgba(0,0,0,0.05)', 
-                        cursor: 'pointer', 
-                        border: '1px solid #e2e8f0', 
-                        display: 'flex', 
-                        justifyContent: 'space-between', 
-                        alignItems: 'center',
-                        transition: 'transform 0.1s',
-                      }}
-                      onMouseEnter={(e) => isPC && (e.currentTarget.style.transform = 'translateY(-2px)')}
-                      onMouseLeave={(e) => isPC && (e.currentTarget.style.transform = 'translateY(0)')}
-                    >
-                      <div>
-                        <div style={{ fontWeight: 'bold', fontSize: '1.1rem', color: '#1e293b' }}>{cust.name} 様</div>
-                        <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '4px' }}>📞 {cust.phone || '電話未登録'}</div>
-                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '8px' }}>
-                          最終来店: {cust.last_arrival_at ? new Date(cust.last_arrival_at).toLocaleDateString() : '記録なし'}
+                  .filter(c => (c.name || '').includes(searchTerm) || (c.phone || '').includes(searchTerm))
+                  .map(cust => {
+                    // 🆕 修正：ここでお客様ごとの「完了済み予約」をリアルタイムに計算します
+                    const realVisitCount = allReservations.filter(r => 
+                      (r.customer_name === cust.name || r.customer_id === cust.id) && 
+                      r.status === 'completed' && 
+                      r.res_type === 'normal'
+                    ).length;
+
+                    return (
+                      <div 
+                        key={cust.id} 
+                        onClick={() => openCustomerInfo({ customer_name: cust.name })} 
+                        style={{ 
+                          background: '#fff', 
+                          padding: '18px', 
+                          borderRadius: '16px', 
+                          boxShadow: '0 4px 6px rgba(0,0,0,0.05)', 
+                          cursor: 'pointer', 
+                          border: '1px solid #e2e8f0', 
+                          display: 'flex', 
+                          justifyContent: 'space-between', 
+                          alignItems: 'center',
+                          transition: 'transform 0.1s',
+                        }}
+                        onMouseEnter={(e) => isPC && (e.currentTarget.style.transform = 'translateY(-2px)')}
+                        onMouseLeave={(e) => isPC && (e.currentTarget.style.transform = 'translateY(0)')}
+                      >
+                        <div>
+                          <div style={{ fontWeight: 'bold', fontSize: '1.1rem', color: '#1e293b' }}>{cust.name} 様</div>
+                          <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '4px' }}>📞 {cust.phone || '電話未登録'}</div>
+                          <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '8px' }}>
+                            最終来店: {cust.last_arrival_at ? new Date(cust.last_arrival_at).toLocaleDateString() : '記録なし'}
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'right', borderLeft: '1px solid #f1f5f9', paddingLeft: '15px' }}>
+                          <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 'bold' }}>来店回数</div>
+                          <div style={{ fontSize: '1.4rem', fontWeight: '900', color: '#4b2c85' }}>
+                            {/* 🆕 修正：計算した「本物の回数」を表示 */}
+                            {realVisitCount}<span style={{fontSize:'0.75rem', marginLeft: '2px'}}>回</span>
+                          </div>
                         </div>
                       </div>
-                      <div style={{ textAlign: 'right', borderLeft: '1px solid #f1f5f9', paddingLeft: '15px' }}>
-                        <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 'bold' }}>来店回数</div>
-                        <div style={{ fontSize: '1.4rem', fontWeight: '900', color: '#4b2c85' }}>
-                          {cust.total_visits || 0}<span style={{fontSize:'0.75rem', marginLeft: '2px'}}>回</span>
-                        </div>
-                      </div>
-                    </div>
-                  ))
+                    );
+                  })
                 }
               </div>
               
@@ -1037,7 +1123,14 @@ return (
         )}
 
 {activeMenu === 'analytics' && (
-          <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#f0f2f5' }}>
+  <div style={{ 
+    display: 'flex', 
+    flexDirection: 'column', 
+    height: '100%', 
+    background: '#f0f2f5',
+    // 🆕 修正：スマホの時だけ下を80px空けて、ボトムナビを避ける
+    paddingBottom: isPC ? '0' : '80px' 
+  }}>
             {/* 🆕 年度切り替えヘッダー */}
             <div style={{ background: '#008000', padding: '15px 25px', color: '#fff', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '30px' }}>
               <button onClick={() => setViewYear(v => v - 1)} style={yearBtnStyle}>◀</button>
@@ -1141,7 +1234,15 @@ return (
 
       {isCheckoutOpen && (
         <div style={checkoutOverlayStyle} onClick={() => setIsCheckoutOpen(false)}>
-          <div style={checkoutPanelStyle} onClick={(e) => e.stopPropagation()}>
+          <div 
+            style={{ 
+              ...checkoutPanelStyle, 
+              // 🆕 修正：スマホの時は横幅100% ＆ 下に余白を作る
+              width: isPC ? '450px' : '100%', 
+              paddingBottom: isPC ? '0' : '80px' 
+            }} 
+            onClick={(e) => e.stopPropagation()}
+          >
 <div style={checkoutHeaderStyle}>
   <div>
     <h3 style={{ margin: 0 }}>{selectedRes?.customer_name} 様</h3>
@@ -1236,7 +1337,16 @@ return (
 
       {isCustomerInfoOpen && (
         <div style={checkoutOverlayStyle} onClick={() => setIsCustomerInfoOpen(false)}>
-          <div style={{ ...checkoutPanelStyle, background: '#fdfcf5' }} onClick={(e) => e.stopPropagation()}>
+          <div 
+            style={{ 
+              ...checkoutPanelStyle, 
+              // 🆕 修正：スマホの時は横幅100% ＆ 下にボトムナビ避用の余白を作る
+              width: isPC ? '450px' : '100%', 
+              paddingBottom: isPC ? '0' : '80px', 
+              background: '#fdfcf5' 
+            }} 
+            onClick={(e) => e.stopPropagation()}
+          >
             <div style={{ ...checkoutHeaderStyle, background: '#008000' }}><div><h3 style={{ margin: 0 }}>{selectedCustomer?.name} 様</h3><p style={{ fontSize: '0.8rem', margin: 0 }}>顧客カルテ編集</p></div><button onClick={() => setIsCustomerInfoOpen(false)} style={{ background: 'none', border: 'none', color: '#fff' }}><X size={24} /></button></div>
             <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
               <SectionTitle icon={<User size={16} />} title="基本情報" color="#008000" />
@@ -1466,40 +1576,44 @@ return (
       {/* 🆕 ここから追加：スマホ専用ボトムナビゲーション */}
       {!isPC && (
         <div style={{ 
-          position: 'fixed', 
-          bottom: 0, 
-          left: 0, 
-          right: 0, 
-          height: '75px', 
-          background: '#fff', 
-          borderTop: '1px solid #e2e8f0', 
-          display: 'flex', 
-          justifyContent: 'space-around', 
-          alignItems: 'center', 
-          zIndex: 2000, 
-          paddingBottom: 'env(safe-area-inset-bottom)', // iPhoneのノッチ対策
+          position: 'fixed', bottom: 0, left: 0, right: 0, height: '75px', 
+          background: '#fff', borderTop: '1px solid #e2e8f0', display: 'flex', 
+          justifyContent: 'space-around', alignItems: 'center', zIndex: 2000, 
+          paddingBottom: 'env(safe-area-inset-bottom)',
           boxShadow: '0 -4px 15px rgba(0,0,0,0.05)' 
         }}>
           {/* 台帳ボタン */}
-          <button onClick={() => setActiveMenu('work')} style={mobileTabStyle(activeMenu === 'work', '#d34817')}>
+          <button 
+            onClick={() => { closeAllPopups(); setActiveMenu('work'); }} 
+            style={mobileTabStyle(activeMenu === 'work', '#d34817')}
+          >
             <Clipboard size={22} />
             <span style={{ fontSize: '0.65rem', fontWeight: 'bold' }}>台帳</span>
           </button>
 
           {/* 名簿ボタン */}
-          <button onClick={() => setActiveMenu('customers')} style={mobileTabStyle(activeMenu === 'customers', '#4285f4')}>
+          <button 
+            onClick={() => { closeAllPopups(); setActiveMenu('customers'); }} 
+            style={mobileTabStyle(activeMenu === 'customers', '#4285f4')}
+          >
             <Users size={22} />
             <span style={{ fontSize: '0.65rem', fontWeight: 'bold' }}>名簿</span>
           </button>
 
           {/* 分析ボタン */}
-          <button onClick={() => setActiveMenu('analytics')} style={mobileTabStyle(activeMenu === 'analytics', '#008000')}>
+          <button 
+            onClick={() => { closeAllPopups(); setActiveMenu('analytics'); }} 
+            style={mobileTabStyle(activeMenu === 'analytics', '#008000')}
+          >
             <BarChart3 size={22} />
             <span style={{ fontSize: '0.65rem', fontWeight: 'bold' }}>分析</span>
           </button>
 
-          {/* カレンダーへ戻るショートカット */}
-          <button onClick={() => navigate(`/admin/${cleanShopId}/reservations`)} style={mobileTabStyle(false, '#4b2c85')}>
+          {/* 戻るボタン */}
+          <button 
+            onClick={() => { closeAllPopups(); navigate(`/admin/${cleanShopId}/reservations`); }} 
+            style={mobileTabStyle(false, '#4b2c85')}
+          >
             <Calendar size={22} />
             <span style={{ fontSize: '0.65rem', fontWeight: 'bold' }}>戻る</span>
           </button>
@@ -1522,7 +1636,7 @@ const svcRowStyle = { padding: '15px 20px', display: 'flex', alignItems: 'center
 const priceInputStyle = { border: '1px solid #ddd', padding: '5px', width: '100px', textAlign: 'right', fontWeight: '900', color: '#d34817' };
 const optAddBtnStyle = { background: '#fff', border: '1px dashed #4285f4', color: '#4285f4', padding: '5px 12px', borderRadius: '4px', fontSize: '0.8rem', cursor: 'pointer', fontWeight: 'bold' };
 const checkoutOverlayStyle = { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.3)', zIndex: 1000, display: 'flex', justifyContent: 'flex-end' };
-const checkoutPanelStyle = { width: '450px', background: '#fff', height: '100%', boxShadow: '-5px 0px 20px rgba(0,0,0,0.2)', display: 'flex', flexDirection: 'column' };
+const checkoutPanelStyle = { background: '#fff', height: '100%', boxShadow: '-5px 0px 20px rgba(0,0,0,0.2)', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' };
 const checkoutHeaderStyle = { background: '#4b2c85', color: '#fff', padding: '20px 25px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' };
 const checkoutFooterStyle = { background: '#f8fafc', padding: '25px', borderTop: '2px solid #ddd' };
 const adjBtnStyle = (active) => ({ padding: '10px 15px', background: active ? '#ef4444' : '#fff', color: active ? '#fff' : '#ef4444', border: '1px solid #ef4444', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' });
