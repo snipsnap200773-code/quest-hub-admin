@@ -180,6 +180,19 @@ const calculateInitialPrice = (task) => {
   return basePrice + optPrice;
 };
 
+// 🆕 修正：追加
+// その予約が「売上対象外（見積りなど）」のみで構成されているか判定する
+const isSalesExcludedTask = (task) => {
+  const opt = typeof task.options === 'string' ? JSON.parse(task.options) : (task.options || {});
+  const servicesInRes = opt.services || (opt.people ? opt.people.flatMap(p => p.services || []) : []);
+  
+  // メニューが設定されており、かつ「すべてのメニュー」が売上対象外設定なら true
+  return servicesInRes.length > 0 && servicesInRes.every(s => {
+    const master = services.find(m => m.id === s.id || m.name === s.name);
+    return master?.is_sales_excluded === true;
+  });
+};
+
 /* ==========================================
     🆕 追加：変更を即座にSupabaseへ同期する関数 [cite: 2026-03-08]
    ========================================== */
@@ -531,13 +544,15 @@ const handleSaveMemo = async () => {
   </div>
 </div>      
       <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-        {tasks.length === 0 ? (
+        {/* 🆕 修正：売上対象外（見積りなど）をリストから除外して判定 */}
+        {tasks.filter(t => !isSalesExcludedTask(t)).length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px', background: '#f8fafc', borderRadius: '20px', color: '#64748b' }}>
             <Calendar size={40} style={{ marginBottom: '10px', opacity: 0.5 }} />
-            <p>今日の予約タスクはありません</p>
+            <p>今日の売上対象タスクはありません</p>
           </div>
         ) : (
-          tasks.map(task => (
+          // 🆕 修正：売上対象外を除外してから map で表示
+          tasks.filter(t => !isSalesExcludedTask(t)).map(task => (
             <div key={task.id} style={{ 
               background: task.status === 'completed' ? '#f8fafc' : '#fff', 
               padding: '20px', 

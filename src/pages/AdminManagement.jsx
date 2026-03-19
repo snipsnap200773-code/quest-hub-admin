@@ -3,7 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import { 
   Save, Clipboard, Calendar, FolderPlus, PlusCircle, Trash2, 
-  Tag, ChevronDown, RefreshCw, ChevronLeft, ChevronRight, Settings, Users, Percent, Plus, Minus, X, CheckCircle, User, FileText, History, ShoppingBag, Edit3, BarChart3
+  Tag, ChevronDown, RefreshCw, ChevronLeft, ChevronRight, Settings, Users, Percent, Plus, Minus, X, CheckCircle, User, FileText, History, ShoppingBag, Edit3, BarChart3,
+  AlertCircle
 } from 'lucide-react';
 
 function AdminManagement() {
@@ -153,7 +154,10 @@ if (profile && profile.business_name) {
         supabase.from('customers').select('*').eq('shop_id', cleanShopId).order('last_arrival_at', { ascending: false }) // 🆕 全顧客取得
       ]);
 
-      setCategories(catRes.data || []);
+      const allCats = catRes.data || [];
+      const serviceOnlyCats = allCats.filter(c => !c.is_adjustment_cat && !c.is_product_cat);
+
+      setCategories(serviceOnlyCats); // 💡 これでポップアップが綺麗になります
       setServices(servRes.data || []);
       setServiceOptions(optRes.data || []);
       setAdminAdjustments(adjRes.data || []);
@@ -387,27 +391,40 @@ const completePayment = async () => {
         targetCustomerId = existingCust?.id;
       }
 
+    // 1. まず「名前」をキーにして今の名簿データを取得（ID、住所、メモなど全部）
+      const { data: currentMaster } = await supabase
+        .from('customers')
+        .select('*')
+        .eq('shop_id', cleanShopId)
+        .eq('name', normalizedName)
+        .maybeSingle();
+
+      // 2. 顧客IDを特定（マスタにあるならそれを使う、なければ今の選択中のID）
+      const finalTargetId = currentMaster?.id || selectedCustomer?.id;
+
+      // 3. 送信用データ（Payload）の作成
+      // 「入力があればそれを使う、なければマスタの値を使う、それもなければ今回の予約時の値を使う」
       const customerPayload = {
         shop_id: cleanShopId,
         name: normalizedName,
-        furigana: editFields.furigana,
-        phone: editFields.phone || selectedRes.customer_phone,
-        email: editFields.email || selectedRes.customer_email,
-        address: editFields.address,
-        zip_code: editFields.zip_code,
-        parking: editFields.parking,
-        building_type: editFields.building_type,
-        care_notes: editFields.care_notes,
-        company_name: editFields.company_name,
-        symptoms: editFields.symptoms,
-        request_details: editFields.request_details,
-        memo: editFields.memo,
-        line_user_id: editFields.line_user_id || selectedRes.line_user_id, // 🆕 LINE IDを確保
+        furigana: editFields.furigana || currentMaster?.furigana || '',
+        phone: editFields.phone || currentMaster?.phone || selectedRes.customer_phone || '',
+        email: editFields.email || currentMaster?.email || selectedRes.customer_email || '',
+        zip_code: editFields.zip_code || currentMaster?.zip_code || '',
+        address: editFields.address || currentMaster?.address || '',
+        parking: editFields.parking || currentMaster?.parking || '',
+        building_type: editFields.building_type || currentMaster?.building_type || '',
+        care_notes: editFields.care_notes || currentMaster?.care_notes || '',
+        company_name: editFields.company_name || currentMaster?.company_name || '',
+        symptoms: editFields.symptoms || currentMaster?.symptoms || '',
+        request_details: editFields.request_details || currentMaster?.request_details || '',
+        memo: editFields.memo || currentMaster?.memo || '', // 👈 メモもこれで保護されます
+        line_user_id: editFields.line_user_id || currentMaster?.line_user_id || selectedRes.line_user_id || null,
         updated_at: new Date().toISOString()
       };
 
-      if (targetCustomerId) {
-        customerPayload.id = targetCustomerId;
+      if (finalTargetId) {
+        customerPayload.id = finalTargetId;
       }
 
       // 名簿を更新（なければ作成、あれば上書き）
@@ -468,7 +485,7 @@ const completePayment = async () => {
         await supabase.from('sales').update(salePayload).eq('id', existingSale.id);
       } else {
         await supabase.from('sales').insert([salePayload]);
-        // 初回確定時のみ来店回数を+1
+        // 初回確定時のみ利用回数を+1
         if (finalCustomerId) {
           const { data: cData } = await supabase.from('customers').select('total_visits').eq('id', finalCustomerId).single();
           await supabase.from('customers').update({ total_visits: (cData?.total_visits || 0) + 1 }).eq('id', finalCustomerId);
@@ -508,7 +525,34 @@ const completePayment = async () => {
     
     alert("現在のマスター設定でリセットしました。");
   };
+
+  const isSalesExcludedRes = (res) => {
+    const info = parseReservationDetails(res);
+    // 全てのメニューが「売上対象外」設定なら、売上処理の対象外とみなす
+    return info.items.length > 0 && info.items.every(item => {
+      const master = services.find(s => s.id === item.id || s.name === item.name);
+      return master?.is_sales_excluded === true;
+    });
+  };
+
   const dailyTotalSales = useMemo(() => allReservations.filter(r => r.start_time.startsWith(selectedDate) && r.res_type === 'normal' && r.status === 'completed').reduce((sum, r) => sum + (r.total_price || 0), 0), [allReservations, selectedDate]);
+
+  // 🆕 修正：過去の「レジ処理忘れ」を自動検知するロジック
+  const oldestIncompleteDate = useMemo(() => {
+    const today = new Date().toLocaleDateString('sv-SE');
+    
+    const incomplete = allReservations
+      .filter(r => 
+        r.res_type === 'normal' && 
+        r.status !== 'completed' &&      // 完了していない
+        r.start_time.split('T')[0] < today && // 今日より前
+        !isSalesExcludedRes(r)           // 見積りなどの売上対象外は除外
+      )
+      .sort((a, b) => a.start_time.localeCompare(b.start_time)); // 古い順に並べる
+
+    // 一番古い「レジ忘れの日」を返す
+    return incomplete.length > 0 ? incomplete[0].start_time.split('T')[0] : null;
+  }, [allReservations, services]);
 
 // ✅ 売上の人数と金額のズレを完全に解消する集計ロジック（厳格・台帳連動版）
   const analyticsData = useMemo(() => {
@@ -794,9 +838,36 @@ return (
               flexWrap: 'wrap',
               gap: '10px'
             }}>
-              <h2 style={{ margin: 0, fontStyle: 'italic', fontSize: isPC ? '1.4rem' : '1.1rem' }}>
-                台帳：{selectedDate.replace(/-/g, '/')}
-              </h2>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                <h2 style={{ margin: 0, fontStyle: 'italic', fontSize: isPC ? '1.4rem' : '1.1rem' }}>
+                  台帳：{selectedDate.replace(/-/g, '/')}
+                </h2>
+
+                {/* 🆕 修正：レジ忘れアラートボタン */}
+                {oldestIncompleteDate && (
+                  <button
+                    onClick={() => setSelectedDate(oldestIncompleteDate)}
+                    style={{
+                      background: '#ffeb3b',
+                      color: '#d34817',
+                      border: 'none',
+                      padding: '6px 12px',
+                      borderRadius: '20px',
+                      fontSize: '0.75rem',
+                      fontWeight: '900',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      animation: 'blinkRed 1.5s infinite', // 💡 下で定義する点滅アニメーション
+                      boxShadow: '0 0 15px rgba(255, 235, 59, 0.5)'
+                    }}
+                  >
+                    <AlertCircle size={14} /> 
+                    未処理あり！ ({oldestIncompleteDate.replace(/-/g, '/')})
+                  </button>
+                )}
+              </div>
 <div style={{ display: 'flex', gap: '6px', alignItems: 'center', position: 'relative' }}>
   {/* 🔍 検索入力エリア */}
   <div style={{ position: 'relative' }}>
@@ -904,8 +975,8 @@ return (
                     </tr>
                   </thead>
                   <tbody>
-                    {allReservations.filter(r => r.start_time.startsWith(selectedDate) && r.res_type === 'normal').length > 0 ? 
-                      allReservations.filter(r => r.start_time.startsWith(selectedDate) && r.res_type === 'normal').map((res) => (
+                    {allReservations.filter(r => r.start_time.startsWith(selectedDate) && r.res_type === 'normal' && !isSalesExcludedRes(r)).length > 0 ? 
+                      allReservations.filter(r => r.start_time.startsWith(selectedDate) && r.res_type === 'normal' && !isSalesExcludedRes(r)).map((res) => (
                         <tr key={res.id} style={{ borderBottom: '1px solid #eee', cursor: 'pointer' }}>
                           <td onClick={(e) => { e.stopPropagation(); setStaffPickerRes(res); }} style={{ ...tdStyle, fontWeight: 'bold', color: '#4b2c85', background: '#fdfbff' }}>
                             {res.staffs?.name || 'フリー'}
@@ -935,8 +1006,8 @@ return (
                    📱 スマホ版：見やすい「売上カード」形式
                    ========================================== */
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  {allReservations.filter(r => r.start_time.startsWith(selectedDate) && r.res_type === 'normal').length > 0 ? (
-                    allReservations.filter(r => r.start_time.startsWith(selectedDate) && r.res_type === 'normal').map((res) => {
+                  {allReservations.filter(r => r.start_time.startsWith(selectedDate) && r.res_type === 'normal' && !isSalesExcludedRes(r)).length > 0 ? (
+                    allReservations.filter(r => r.start_time.startsWith(selectedDate) && r.res_type === 'normal' && !isSalesExcludedRes(r)).map((res) => {
                       const details = parseReservationDetails(res);
                       const isCompleted = res.status === 'completed';
                       return (
@@ -1110,7 +1181,7 @@ return (
                           </div>
                         </div>
                         <div style={{ textAlign: 'right', borderLeft: '1px solid #f1f5f9', paddingLeft: '15px' }}>
-                          <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 'bold' }}>来店回数</div>
+                          <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 'bold' }}>利用回数</div>
                           <div style={{ fontSize: '1.4rem', fontWeight: '900', color: '#4b2c85' }}>
                             {/* 🆕 修正：計算した「本物の回数」を表示 */}
                             {realVisitCount}<span style={{fontSize:'0.75rem', marginLeft: '2px'}}>回</span>
@@ -1474,84 +1545,104 @@ return (
 
       {isMenuPopupOpen && (
         <div style={{ ...checkoutOverlayStyle, zIndex: 2000 }} onClick={() => setIsMenuPopupOpen(false)}>
-          <div style={{ ...checkoutPanelStyle, width: '400px', borderRadius: '25px 0 0 25px' }} onClick={(e) => e.stopPropagation()}>
+          <div style={{ ...checkoutPanelStyle, width: isPC ? '400px' : '100%', borderRadius: isPC ? '25px 0 0 25px' : '30px 30px 0 0' }} onClick={(e) => e.stopPropagation()}>
             <div style={{ ...checkoutHeaderStyle, background: '#4b2c85' }}>
               <h3 style={{ margin: 0 }}>メニューの追加・変更</h3>
               <button onClick={() => setIsMenuPopupOpen(false)} style={{ background: 'none', border: 'none', color: '#fff' }}><X size={24} /></button>
             </div>
-            <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
-              {categories.map(cat => (
-                <div key={cat.id} style={{ marginBottom: '25px' }}>
-                  <h4 style={{ fontSize: '0.8rem', color: '#666', borderBottom: '1px solid #ddd', paddingBottom: '4px', marginBottom: '10px' }}>{cat.name}</h4>
-                  <div style={{ display: 'grid', gap: '8px' }}>
-{services.filter(s => s.category === cat.name).map(svc => {
-  // ① 今このメニューにチェックが入っているか確認
-  const isSelected = checkoutServices.some(s => s.id === svc.id);
-  
-  // ② このメニューに紐づく「枝分かれ（ブリーチ回数など）」を取得してグループ分け
-  const svcOpts = serviceOptions.filter(o => o.service_id === svc.id);
-  const grouped = svcOpts.reduce((acc, o) => {
-    if (!acc[o.group_name]) acc[o.group_name] = [];
-    acc[o.group_name].push(o);
-    return acc;
-  }, {});
+            
+            <div style={{ flex: 1, overflowY: 'auto', padding: '20px', paddingBottom: isPC ? '20px' : '100px' }}>
+              {categories.map(cat => {
+                // 🆕 カテゴリ内のサービスを抽出
+                const filteredServices = services.filter(s => s.category === cat.name);
+                
+                // 🆕 サービスが0件のカテゴリ（店販用や調整用など）は表示をスキップ
+                if (filteredServices.length === 0) return null;
 
-  return (
-    <div key={svc.id} style={{ marginBottom: '10px', border: '1px solid #eee', borderRadius: '12px', overflow: 'hidden', background: '#fff' }}>
-      {/* メインのメニューボタン */}
-      <button 
-        onClick={() => toggleCheckoutService(svc)} 
-        style={{ width: '100%', padding: '15px', border: 'none', textAlign: 'left', background: isSelected ? '#f3f0ff' : '#fff', cursor: 'pointer' }}
-      >
-        <div style={{ fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>{isSelected ? '✅ ' : ''}{svc.name}</span>
-          <span style={{ color: '#4b2c85', fontSize: '0.9rem' }}>¥{svc.price.toLocaleString()}</span>
-        </div>
-      </button>
+                return (
+                  <div key={cat.id} style={{ marginBottom: '25px' }}>
+                    <h4 style={{ 
+                      fontSize: '0.75rem', 
+                      fontWeight: 'bold', 
+                      color: '#4b2c85', 
+                      background: '#f3f0ff', 
+                      padding: '4px 10px', 
+                      borderRadius: '4px', 
+                      marginBottom: '12px',
+                      display: 'inline-block' 
+                    }}>
+                      {cat.name}
+                    </h4>
+                    
+                    <div style={{ display: 'grid', gap: '8px' }}>
+                      {filteredServices.map(svc => {
+                        const isSelected = checkoutServices.some(s => s.id === svc.id);
+                        const svcOpts = serviceOptions.filter(o => o.service_id === svc.id);
+                        const grouped = svcOpts.reduce((acc, o) => {
+                          if (!acc[o.group_name]) acc[o.group_name] = [];
+                          acc[o.group_name].push(o);
+                          return acc;
+                        }, {});
 
-      {/* ✅ サービスが選択されている時だけ、その下の枝分かれ項目（シャンプーや回数）を表示 */}
-      {isSelected && Object.keys(grouped).length > 0 && (
-        <div style={{ padding: '12px', background: '#f8fafc', borderTop: '1px solid #eee' }}>
-          {Object.keys(grouped).map(gn => (
-            <div key={gn} style={{ marginBottom: '10px' }}>
-              <p style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 'bold', margin: '0 0 6px 0' }}>└ {gn}</p>
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                {grouped[gn].map(opt => {
-                  // レジ専用の選択状態(checkoutOptions)を確認
-                  const isOptSelected = checkoutOptions[`${svc.id}-${gn}`]?.id === opt.id;
-                  return (
-                    <button
-                      key={opt.id}
-                      onClick={() => toggleCheckoutOption(svc.id, gn, opt)}
-                      style={{
-                        padding: '6px 12px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 'bold', border: '1px solid',
-                        borderColor: isOptSelected ? '#4b2c85' : '#cbd5e1',
-                        background: isOptSelected ? '#4b2c85' : '#fff',
-                        color: isOptSelected ? '#fff' : '#475569', cursor: 'pointer'
-                      }}
-                    >
-                      {opt.option_name} {opt.additional_price > 0 ? `(+¥${opt.additional_price})` : ''}
-                    </button>
-                  );
-                })}
-              </div>
+                        return (
+                          <div key={svc.id} style={{ marginBottom: '10px', border: '1px solid #eee', borderRadius: '12px', overflow: 'hidden', background: '#fff' }}>
+                            {/* メインのメニューボタン */}
+                            <button 
+                              onClick={() => toggleCheckoutService(svc)} 
+                              style={{ width: '100%', padding: '15px', border: 'none', textAlign: 'left', background: isSelected ? '#f3f0ff' : '#fff', cursor: 'pointer' }}
+                            >
+                              <div style={{ fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span>{isSelected ? '✅ ' : ''}{svc.name}</span>
+                                <span style={{ color: '#4b2c85', fontSize: '0.9rem' }}>¥{svc.price.toLocaleString()}</span>
+                              </div>
+                            </button>
+
+                            {/* 枝分かれオプション（選択時のみ表示） */}
+                            {isSelected && Object.keys(grouped).length > 0 && (
+                              <div style={{ padding: '12px', background: '#f8fafc', borderTop: '1px solid #eee' }}>
+                                {Object.keys(grouped).map(gn => (
+                                  <div key={gn} style={{ marginBottom: '10px' }}>
+                                    <p style={{ fontSize: '0.6rem', color: '#94a3b8', margin: '0 0 6px 0' }}>└ {gn}</p>
+                                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                      {grouped[gn].map(opt => {
+                                        const isOptSelected = checkoutOptions[`${svc.id}-${gn}`]?.id === opt.id;
+                                        return (
+                                          <button
+                                            key={opt.id}
+                                            onClick={() => toggleCheckoutOption(svc.id, gn, opt)}
+                                            style={{
+                                              padding: '6px 12px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 'bold', border: '1px solid',
+                                              borderColor: isOptSelected ? '#4b2c85' : '#cbd5e1',
+                                              background: isOptSelected ? '#4b2c85' : '#fff',
+                                              color: isOptSelected ? '#fff' : '#475569', cursor: 'pointer'
+                                            }}
+                                          >
+                                            {opt.option_name} {opt.additional_price > 0 ? `(+¥${opt.additional_price})` : ''}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-})}                  </div>
-                </div>
-              ))}
-            </div>
+            
             <div style={{ padding: '20px', background: '#f8fafc', borderTop: '1px solid #ddd' }}>
               <button onClick={applyMenuChangeToLedger} style={{ ...completeBtnStyle, background: '#4b2c85' }}>完了して反映</button>
             </div>
           </div>
         </div>
       )}
-{/* 🆕 ここ！ここに「スタッフ選択モーダル」を差し込みます */}
+
+      {/* 👤 スタッフ選択モーダル */}
       {staffPickerRes && (
         <div style={modalOverlayStyle} onClick={() => setStaffPickerRes(null)}>
           <div style={{ ...modalContentStyle, maxWidth: '300px', textAlign: 'center' }} onClick={e => e.stopPropagation()}>
@@ -1559,20 +1650,9 @@ return (
               「{staffPickerRes.customer_name}」様の<br />担当者を変更
             </h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <button 
-                onClick={() => handleUpdateStaffDirectly(staffPickerRes.id, null)}
-                style={{ padding: '12px', borderRadius: '10px', border: '1px solid #ddd', background: '#f8fafc', fontWeight: 'bold', cursor: 'pointer' }}
-              >
-                担当なし（フリー）
-              </button>
+              <button onClick={() => handleUpdateStaffDirectly(staffPickerRes.id, null)} style={{ padding: '12px', borderRadius: '10px', border: '1px solid #ddd', background: '#f8fafc', fontWeight: 'bold', cursor: 'pointer' }}>担当なし（フリー）</button>
               {staffs.map(s => (
-                <button 
-                  key={s.id}
-                  onClick={() => handleUpdateStaffDirectly(staffPickerRes.id, s.id)}
-                  style={{ padding: '12px', borderRadius: '10px', border: 'none', background: '#4b2c85', color: '#fff', fontWeight: 'bold', cursor: 'pointer' }}
-                >
-                  {s.name}
-                </button>
+                <button key={s.id} onClick={() => handleUpdateStaffDirectly(staffPickerRes.id, s.id)} style={{ padding: '12px', borderRadius: '10px', border: 'none', background: '#4b2c85', color: '#fff', fontWeight: 'bold', cursor: 'pointer' }}>{s.name}</button>
               ))}
             </div>
             <button onClick={() => setStaffPickerRes(null)} style={{ marginTop: '20px', color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer' }}>キャンセル</button>
@@ -1580,57 +1660,29 @@ return (
         </div>
       )}
 
-      {/* 🆕 ここから追加：スマホ専用ボトムナビゲーション */}
+      {/* 📱 スマホ専用ボトムナビゲーション */}
       {!isPC && (
-        <div style={{ 
-          position: 'fixed', bottom: 0, left: 0, right: 0, height: '75px', 
-          background: '#fff', borderTop: '1px solid #e2e8f0', display: 'flex', 
-          justifyContent: 'space-around', alignItems: 'center', zIndex: 2000, 
-          paddingBottom: 'env(safe-area-inset-bottom)',
-          boxShadow: '0 -4px 15px rgba(0,0,0,0.05)' 
-        }}>
-          {/* 台帳ボタン */}
-          <button 
-            onClick={() => { closeAllPopups(); setActiveMenu('work'); }} 
-            style={mobileTabStyle(activeMenu === 'work', '#d34817')}
-          >
-            <Clipboard size={22} />
-            <span style={{ fontSize: '0.65rem', fontWeight: 'bold' }}>台帳</span>
-          </button>
-
-          {/* 名簿ボタン */}
-          <button 
-            onClick={() => { closeAllPopups(); setActiveMenu('customers'); }} 
-            style={mobileTabStyle(activeMenu === 'customers', '#4285f4')}
-          >
-            <Users size={22} />
-            <span style={{ fontSize: '0.65rem', fontWeight: 'bold' }}>名簿</span>
-          </button>
-
-          {/* 分析ボタン */}
-          <button 
-            onClick={() => { closeAllPopups(); setActiveMenu('analytics'); }} 
-            style={mobileTabStyle(activeMenu === 'analytics', '#008000')}
-          >
-            <BarChart3 size={22} />
-            <span style={{ fontSize: '0.65rem', fontWeight: 'bold' }}>分析</span>
-          </button>
-
-          {/* 戻るボタン */}
-          <button 
-            onClick={() => { closeAllPopups(); navigate(`/admin/${cleanShopId}/reservations`); }} 
-            style={mobileTabStyle(false, '#4b2c85')}
-          >
-            <Calendar size={22} />
-            <span style={{ fontSize: '0.65rem', fontWeight: 'bold' }}>戻る</span>
-          </button>
+        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, height: '75px', background: '#fff', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-around', alignItems: 'center', zIndex: 2000, paddingBottom: 'env(safe-area-inset-bottom)', boxShadow: '0 -4px 15px rgba(0,0,0,0.05)' }}>
+          <button onClick={() => { closeAllPopups(); setActiveMenu('work'); }} style={mobileTabStyle(activeMenu === 'work', '#d34817')}><Clipboard size={22} /><span style={{ fontSize: '0.65rem', fontWeight: 'bold' }}>台帳</span></button>
+          <button onClick={() => { closeAllPopups(); setActiveMenu('customers'); }} style={mobileTabStyle(activeMenu === 'customers', '#4285f4')}><Users size={22} /><span style={{ fontSize: '0.65rem', fontWeight: 'bold' }}>名簿</span></button>
+          <button onClick={() => { closeAllPopups(); setActiveMenu('analytics'); }} style={mobileTabStyle(activeMenu === 'analytics', '#008000')}><BarChart3 size={22} /><span style={{ fontSize: '0.65rem', fontWeight: 'bold' }}>分析</span></button>
+          <button onClick={() => { closeAllPopups(); navigate(`/admin/${cleanShopId}/reservations`); }} style={mobileTabStyle(false, '#4b2c85')}><Calendar size={22} /><span style={{ fontSize: '0.65rem', fontWeight: 'bold' }}>戻る</span></button>
         </div>
       )}
+
+      {/* 🆕 追加：レジ忘れアラート用の点滅アニメーション命令 */}
+      <style>{`
+        @keyframes blinkRed {
+          0% { background-color: #ffeb3b; transform: scale(1); box-shadow: 0 0 5px rgba(255, 235, 59, 0.5); }
+          50% { background-color: #ff5722; color: #fff; transform: scale(1.05); box-shadow: 0 0 20px rgba(255, 87, 34, 0.8); }
+          100% { background-color: #ffeb3b; transform: scale(1); box-shadow: 0 0 5px rgba(255, 235, 59, 0.5); }
+        }
+      `}</style>
     </div>
   );
 }
 
-// スタイル定義（ここは変更なし）
+// スタイル定義
 const SectionTitle = ({ icon, title, color }) => (<div style={{ display: 'flex', alignItems: 'center', gap: '8px', color, fontWeight: 'bold', borderBottom: `2px solid ${color}`, paddingBottom: '5px', marginBottom: '15px' }}>{icon} {title}</div>);
 const fullPageWrapper = { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', display: 'flex', background: '#fff', zIndex: 9999, overflow: 'hidden' };
 const sidebarStyle = { width: '260px', background: '#e0d7f7', borderRight: '2px solid #4b2c85', padding: '15px', display: 'flex', flexDirection: 'column', flexShrink: 0, overflowY: 'auto' };
@@ -1661,7 +1713,6 @@ const monthCardStyle = { background: '#fff', padding: '20px', borderRadius: '16p
 const modalOverlayStyle = { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10000 };
 const modalContentStyle = { background: '#fff', padding: '25px', borderRadius: '24px', width: '90%', maxWidth: '450px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' };
 
-// 🆕 スマホのタブボタン用スタイル
 const mobileTabStyle = (active, color) => ({
   display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '4px',
   background: 'none', border: 'none', color: active ? color : '#94a3b8',
@@ -1671,8 +1722,8 @@ const mobileTabStyle = (active, color) => ({
 const badgeStyle = (color) => ({
   textDecoration: 'none', background: color, color: '#fff',
   padding: '2px 8px', borderRadius: '6px', fontSize: '0.65rem',
-  fontWeight: 'bold', display: 'flex', alignItems: 'center', boxShadow: `0 2px 4px ${color}33`,
-  cursor: 'pointer'
+  fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', boxShadow: `0 2px 4px ${color}33`,
+  marginLeft: '10px'
 });
 
 export default AdminManagement;

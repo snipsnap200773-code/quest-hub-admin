@@ -34,7 +34,8 @@ function ConfirmReservation() {
     visitorZip,
     visitorAddress,
     travelTimeMinutes,
-    authUserProfile // 🆕 前の画面から渡されたログインユーザー情報
+    authUserProfile,
+    isSalesExcluded
   } = location.state || {};
   
 const isAdminEntry = !!adminDate; 
@@ -529,6 +530,8 @@ const handleReserve = async () => {
           options: { 
             people: people,
             applied_shop_name: customShopName || shop.business_name,
+            // 🆕 重要：ここに「売上対象外」という印を刻む！
+            is_sales_excluded: isSalesExcluded, 
             visit_info: {
               address: customerData.address,
               parking: customerData.parking,

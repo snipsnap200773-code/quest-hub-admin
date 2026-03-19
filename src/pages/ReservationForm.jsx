@@ -408,39 +408,50 @@ fetchPreviousAddress();
   };
 
 const handleNextStep = () => {
-    window.scrollTo(0,0);
+    window.scrollTo(0, 0);
 
-    // 1. 現在選択中のメニューを「n人目」のデータとして整形
+    // 1. 今回の選択分も含めた「最終的な予約者リスト」を一時的に作成
     const currentBaseName = selectedServices.map(s => s.name).join(', ');
-    const currentOptionName = Object.values(selectedOptions).map(o => o.option_name).join(', ');
+    const currentOptionsFlat = Object.values(selectedOptions).flat();
+    const currentOptionName = currentOptionsFlat.map(o => o?.option_name).filter(Boolean).join(', ');
     const currentFullName = currentOptionName ? `${currentBaseName}（${currentOptionName}）` : currentBaseName;
 
-    // 2. 次のステップへ引き継ぐ共通データ一式
+    const finalPeople = [...people, { 
+      services: selectedServices, 
+      options: selectedOptions, 
+      slots: currentPersonSlots,
+      fullName: currentFullName 
+    }];
+
+    // 🆕 2. 【重要】全メニューが「売上対象外」設定かどうかを判定
+    // every を使って「全員の全メニューが is_sales_excluded === true であるか」を調べます
+    const isExcluded = finalPeople.every(p => 
+      p.services.every(s => s.is_sales_excluded === true)
+    );
+
+    // 3. 次のステップへ引き継ぐ共通データ一式
     const commonState = { 
-      people: [...people, { 
-        services: selectedServices, 
-        options: selectedOptions, 
-        slots: currentPersonSlots,
-        fullName: currentFullName 
-      }],
+      people: finalPeople,
+      isSalesExcluded: isExcluded, // 🆕 このフラグを次の画面へバトンタッチ！
       totalSlotsNeeded,
       lineUser,
-      // 🆕 ログイン済みユーザー情報をバトンタッチ
       authUserProfile, 
-      visitorZip,
-      visitorAddress,
+      visitorZip,
+      visitorAddress,
       customShopName: displayBranding.name,
-      // ✅ 修正：Stateの autoStaffId を使う
       staffId: adminStaffId || staffIdFromUrl || autoStaffId,
       fromView: fromView
     };
 
+    // 4. 画面遷移
     if (isAdminMode) {
+      // 管理者ねじ込みモードなら直接「確認画面」へ
       const confirmUrl = `/shop/${shopId}/confirm${adminStaffId ? `?staff=${adminStaffId}` : ''}`;
       navigate(confirmUrl, { 
         state: { ...commonState, date: adminDate, time: adminTime, adminDate, adminTime } 
       });
     } else {
+      // 一般客なら「日時選択画面」へ
       const nextUrl = `/shop/${shopId}/reserve/time${staffIdFromUrl ? `?staff=${staffIdFromUrl}` : ''}`;
       navigate(nextUrl, { state: commonState });
     }

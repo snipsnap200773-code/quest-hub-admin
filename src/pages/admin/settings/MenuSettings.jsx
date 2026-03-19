@@ -50,7 +50,10 @@ const MenuSettings = () => {
 
   // 🆕 追加：1日貸切モード用のState
   const [isFullDay, setIsFullDay] = useState(false);
-  const [isAdminOnly, setIsAdminOnly] = useState(false); // 🆕 追加：管理者専用State
+  const [isAdminOnly, setIsAdminOnly] = useState(false);
+
+  // 🆕 追加：売上対象外（レジに表示しない）設定用のState
+  const [isSalesExcluded, setIsSalesExcluded] = useState(false);
 
   // ✅ 🆕 差し込み：時間制限用のStateを追加
   const [useRestriction, setUseRestriction] = useState(false);
@@ -262,17 +265,18 @@ const handleServiceSubmit = async (e) => {
     }
     const finalCategory = selectedCategory || (categories[0]?.name || 'その他');
 const serviceData = { 
-  shop_id: shopId, 
-  name: newServiceName, 
-  slots: Number(newServiceSlots),
-  price: Number(newServicePrice), 
-  category: finalCategory,
-  // ✅ 🆕 修正：入力された時間範囲の配列を保存
-  restricted_hours: useRestriction ? timeRanges : null,
-  // 🆕 追加：1日貸切フラグを保存
-  is_full_day: isFullDay,
-  is_admin_only: isAdminOnly
-};
+      shop_id: shopId, 
+      name: newServiceName, 
+      slots: Number(newServiceSlots),
+      price: Number(newServicePrice), 
+      category: finalCategory,
+      restricted_hours: useRestriction ? timeRanges : null,
+      is_full_day: isFullDay,
+      is_admin_only: isAdminOnly,
+      // 🆕 修正：売上対象外フラグをデータベースへ保存
+      is_sales_excluded: isSalesExcluded 
+    };
+
     if (editingServiceId) await supabase.from('services').update(serviceData).eq('id', editingServiceId);
     else await supabase.from('services').insert([{ ...serviceData, sort_order: services.length }]);
     
@@ -741,7 +745,33 @@ const handleProdCatSubmit = async (e) => {
   </label>
 </div>
 
-          <div style={{ marginBottom: '20px' }}>
+{/* 🆕 追加：売上対象外設定のスイッチ（レジに表示させない設定） */}
+          <div style={{ 
+            marginBottom: '20px', 
+            padding: '15px', 
+            background: isSalesExcluded ? '#fef2f2' : '#fff', 
+            borderRadius: '12px', 
+            border: isSalesExcluded ? `2px solid #ef4444` : '1px solid #e2e8f0' 
+          }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+              <input 
+                type="checkbox" 
+                checked={isSalesExcluded} 
+                onChange={(e) => setIsSalesExcluded(e.target.checked)} 
+                style={{ width: '18px', height: '18px' }} 
+              />
+              <div>
+                <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: isSalesExcluded ? '#ef4444' : '#334155' }}>
+                  【売上対象外】カレンダーのみ表示し、レジには出さない
+                </span>
+                <p style={{ margin: '4px 0 0', fontSize: '0.7rem', color: '#64748b' }}>
+                  ※見積りや現地調査など、お会計が発生しないメニューにチェックしてください。
+                </p>
+              </div>
+            </label>
+          </div>
+
+          <div style={{ marginBottom: '20px' }}>
             <label style={{ fontSize: '0.85rem', fontWeight: 'bold', display: 'block', marginBottom: '10px', color: '#64748b' }}>
               
               必要コマ数: <span style={{ color: themeColor, fontSize: '1.1rem' }}>{newServiceSlots}コマ（{newServiceSlots * slotIntervalMin}分）</span>
@@ -801,6 +831,7 @@ const handleProdCatSubmit = async (e) => {
                         setSelectedCategory(s.category); 
                         setIsFullDay(s.is_full_day || false);
                         setIsAdminOnly(s.is_admin_only || false);
+                        setIsSalesExcluded(s.is_sales_excluded || false);
                         
                         // ✅ 🆕 差し込み：制限データの復元
                         if (s.restricted_hours) {

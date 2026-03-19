@@ -380,9 +380,8 @@ const openDetail = async (res) => {
   // 🆕 追加：画面に通知を出す関数 [cite: 2026-03-08]
   const showMsg = (txt) => { setMessage(txt); setTimeout(() => setMessage(''), 3000); };
 
-// ✅ 重複防止 ＆ メモ一本化ロジック：真・完成版 [cite: 2026-03-10]
+// ✅ 重複防止・データ保護・一括紐付けロジック：完全版
   const handleUpdateCustomer = async () => {
-    
     try {
       const normalizedName = editFields.name.replace(/　/g, ' ').trim();
       if (!normalizedName) {
@@ -390,18 +389,15 @@ const openDetail = async (res) => {
         return;
       }
 
-      // 💡 🆕 修正：ブロック枠(blocked) または プライベート予定(private_task) の場合
+      // 💡 A: ブロック枠(blocked) または プライベート予定(private_task) の場合
       if (selectedRes?.res_type === 'blocked' || selectedRes?.res_type === 'private_task') {
         const isPrivate = selectedRes.res_type === 'private_task';
         const targetTable = isPrivate ? 'private_tasks' : 'reservations';
-        
-        // 💡 プライベート予定は title と note、ブロック枠は customer_name を更新
         const updateData = isPrivate 
           ? { title: normalizedName, note: editFields.memo } 
           : { customer_name: normalizedName };
 
         const { error } = await supabase.from(targetTable).update(updateData).eq('id', selectedRes.id);
-        
         if (error) throw error;
         showMsg('予定を更新しました！');
         setShowDetailModal(false);
@@ -409,43 +405,46 @@ const openDetail = async (res) => {
         return;
       }
 
-      // 🔍 ステップ1：この名前の人がすでに名簿にいないか「名寄せ検索」を行う
-      let targetCustomerId = selectedCustomer?.id;
+      // 💡 B: 通常予約の場合（名簿マスタと連動）
       
-      if (!targetCustomerId) {
-        const { data: existingCust } = await supabase
-          .from('customers')
-          .select('id')
-          .eq('shop_id', shopId)
-          .eq('name', normalizedName)
-          .maybeSingle();
-        
-        if (existingCust) {
-          targetCustomerId = existingCust.id; // すでにいたらそのIDを使う
-        }
-      }
+      // 1. まず「名前」をキーにして今の名簿データを取得（IDや最新の電話番号を確認）
+      const { data: currentMaster } = await supabase
+        .from('customers')
+        .select('*')
+        .eq('shop_id', shopId)
+        .eq('name', normalizedName)
+        .maybeSingle();
 
+      // 2. 顧客IDを特定
+      const finalTargetId = currentMaster?.id || selectedCustomer?.id;
+
+      // 3. 顧客マスタ用データの作成（空欄上書き防止ガード！）
+      // 「入力があれば使う > なければマスタの値を使う > それもなければ今回の予約時の値を使う」
       const customerPayload = {
         shop_id: shopId,
         name: normalizedName,
         admin_name: normalizedName,
-        furigana: editFields.furigana || null,
-        phone: editFields.phone || null,
-        email: editFields.email || null,
-        address: editFields.address || null,
-        parking: editFields.parking || null,
-        symptoms: editFields.symptoms || null,
-        request_details: editFields.request_details || null,
-        memo: editFields.memo || null, // 👈 すべてのメモはここ（マスタ）へ！
-        line_user_id: editFields.line_user_id || null,
+        furigana: editFields.furigana || currentMaster?.furigana || '',
+        phone: editFields.phone || currentMaster?.phone || selectedRes.customer_phone || '',
+        email: editFields.email || currentMaster?.email || selectedRes.customer_email || '',
+        address: editFields.address || currentMaster?.address || '',
+        zip_code: editFields.zip_code || currentMaster?.zip_code || '',
+        parking: editFields.parking || currentMaster?.parking || '',
+        building_type: editFields.building_type || currentMaster?.building_type || '',
+        care_notes: editFields.care_notes || currentMaster?.care_notes || '',
+        company_name: editFields.company_name || currentMaster?.company_name || '',
+        symptoms: editFields.symptoms || currentMaster?.symptoms || '',
+        request_details: editFields.request_details || currentMaster?.request_details || '',
+        memo: editFields.memo || currentMaster?.memo || '', // メモも保護！
+        line_user_id: editFields.line_user_id || currentMaster?.line_user_id || selectedRes.line_user_id || null,
         updated_at: new Date().toISOString()
       };
 
-      if (targetCustomerId) {
-        customerPayload.id = targetCustomerId;
+      if (finalTargetId) {
+        customerPayload.id = finalTargetId;
       }
 
-      // 🔍 ステップ2：名簿（customers）を更新。IDがあれば「上書き」、なければ「新規」になる
+      // 4. 名簿（customers）を更新
       const { data: savedCust, error: custError } = await supabase
         .from('customers')
         .upsert(customerPayload, { onConflict: 'id' })
@@ -453,34 +452,39 @@ const openDetail = async (res) => {
         .single();
       
       if (custError) throw custError;
-      targetCustomerId = savedCust.id; // 保存後の最新IDを確保
+      const finalCustomerId = savedCust.id;
 
-      // 🔍 ステップ3：予約データ（reservations）を更新して「名簿ID」をガッチリ紐付ける
+      // --- 🆕 5. 【重要】同じ名前の過去予約も一気に紐付け！ ---
+      // これにより、昔の「記録なし」だった予約もすべてこのお客様の履歴として繋がります
+      await supabase
+        .from('reservations')
+        .update({ customer_id: finalCustomerId })
+        .eq('shop_id', shopId)
+        .eq('customer_name', normalizedName)
+        .is('customer_id', null);
+
+      // 6. 今の予約データも最新化
       const { error: resError } = await supabase
         .from('reservations')
         .update({ 
           customer_name: normalizedName,
-          customer_phone: editFields.phone,
-          customer_email: editFields.email,
-          customer_id: targetCustomerId, // 👈 ここで紐付けるので、次からは重複しません！
-          staff_id: selectedRes.staff_id,
-          memo: null // 👈 予約側のメモは混乱を防ぐため空にします
+          customer_phone: customerPayload.phone,
+          customer_email: customerPayload.email,
+          customer_id: finalCustomerId, // ガッチリ紐付け
+          memo: null // マスタに一本化したので予約側は空にする
         })
         .eq('id', selectedRes.id);
 
       if (resError) throw resError;
 
-      // 💡 ステップ4：画面上の状態（State）も最新に更新する
-      setSelectedCustomer(savedCust); // これで、連続で「保存」を押しても重複しません！
-      
-      showMsg('情報を保存しました！✨'); 
+      showMsg('情報を保存し、全履歴を紐付けました！✨'); 
       setShowDetailModal(false); 
       fetchData(); 
     } catch (err) {
       console.error(err);
       alert('保存エラー: ' + err.message);
     }
-}; 
+  }; 
 
   // 🆕 追加：プライベート予定(private_tasksテーブル)を保存する関数
   const handleSavePrivateTask = async () => {

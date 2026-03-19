@@ -13,7 +13,12 @@ function TimeSelectionCalendar() {
 
   const queryParams = new URLSearchParams(location.search);
   const staffIdFromUrl = queryParams.get('staff');
-  const { totalSlotsNeeded, staffId: staffIdFromState, people } = location.state || { totalSlotsNeeded: 0, people: [] };
+  const { 
+    totalSlotsNeeded, 
+    staffId: staffIdFromState, 
+    people, 
+    isSalesExcluded // 🆕 届いたバトン（売上対象外フラグ）を受け取る
+  } = location.state || { totalSlotsNeeded: 0, people: [] };
   const effectiveStaffId = staffIdFromUrl || staffIdFromState;
 
   // --- State管理 ---
@@ -434,8 +439,28 @@ function TimeSelectionCalendar() {
         <button onClick={() => navigate(-1)} style={{ border: 'none', background: 'none', color: '#64748b', fontSize: '0.9rem', marginBottom: '10px', cursor: 'pointer' }}>← 戻る</button>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 'bold' }}>{targetStaff ? `${targetStaff.name} 指名` : '日時選択'}</h2>
-            <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: themeColor }}>所要時間: {totalSlotsNeeded * (shop?.slot_interval_min || 15)}分</p>
+            <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 'bold' }}>
+              {targetStaff ? `${targetStaff.name} 指名` : '日時選択'}
+            </h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+              <p style={{ margin: 0, fontSize: '0.8rem', color: themeColor }}>
+                所要時間: {totalSlotsNeeded * (shop?.slot_interval_min || 15)}分
+              </p>
+              {/* 🆕 修正：売上対象外（見積りなど）の場合にラベルを表示 */}
+              {isSalesExcluded && (
+                <span style={{ 
+                  fontSize: '0.65rem', 
+                  background: '#fef2f2', 
+                  color: '#ef4444', 
+                  padding: '2px 8px', 
+                  borderRadius: '4px', 
+                  fontWeight: 'bold',
+                  border: '1px solid #fee2e2'
+                }}>
+                  お見積り・現地調査（無料）
+                </span>
+              )}
+            </div>
           </div>
           <Clock color={themeColor} size={24} />
         </div>
