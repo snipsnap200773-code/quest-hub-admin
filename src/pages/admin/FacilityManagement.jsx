@@ -30,7 +30,7 @@ const FacilityManagement = () => {
 
   // フォームState（既存システムをベースに tenant_id を追加）
   const [formData, setFormData] = useState({ 
-    name: '', pw: '', email: '', address: '', tel: '', regular_rules: [], tenant_id: shopId 
+    name: '', login_id: '', pw: '', email: '', address: '', tel: '', regular_rules: [], tenant_id: shopId 
   });
 
   const [selDay, setSelDay] = useState(1);
@@ -43,14 +43,29 @@ const FacilityManagement = () => {
 
   const fetchFacilities = async () => {
     setLoading(true);
-    // 💡 tenant_id で絞り込むことで、自分の店舗の施設だけを表示
+    
+    // 🆕 shop_facility_connections（提携）から、紐付く facility_users（施設マスター）を取得
     const { data, error } = await supabase
-      .from('facilities')
-      .select('*')
-      .eq('tenant_id', shopId)
+      .from('shop_facility_connections')
+      .select(`
+        *,
+        facility_users (*)
+      `)
+      .eq('shop_id', shopId)
       .order('created_at', { ascending: true });
     
-    if (!error) setFacilities(data);
+    if (!error && data) {
+      // 扱いやすいように「施設情報 ＋ 提携ルール」の形に整理する
+      const formatted = data.map(item => ({
+        ...item.facility_users,      // 施設マスター（名前、住所など）
+        id: item.facility_users.id,  // 施設ID
+        regular_rules: item.regular_rules || [], // この店舗との定期ルール
+        connection_id: item.id       // 提携自体のID
+      }));
+      setFacilities(formatted);
+    } else if (error) {
+      console.error("取得エラー:", error);
+    }
     setLoading(false);
   };
 
@@ -71,25 +86,78 @@ const handleSave = async (e) => {
   e.preventDefault();
   setLoading(true);
   
-  if (editingId) {
-    // 編集の場合
-    const { error } = await supabase
-      .from('facilities')
-      .update(formData)
-      .eq('id', editingId);
-    if (error) alert(error.message);
-  } else {
-    // 新規登録の場合（idは自動生成されるので含めない）
-    const { error } = await supabase
-      .from('facilities')
-      .insert([formData]);
-    if (error) alert(error.message);
-  }
+  try {
+    if (editingId) {
+      // --- ❶ 編集（既存データの更新） ---
+      
+      // ① 施設マスター（共通アカウント）情報を更新
+      const { error: userError } = await supabase
+        .from('facility_users')
+        .update({
+          facility_name: formData.name,
+          login_id: formData.login_id || formData.name, // ログインID（無ければ名前を代用）
+          password: formData.pw,
+          email: formData.email,
+          address: formData.address,
+          tel: formData.tel
+        })
+        .eq('id', editingId);
 
-  setIsModalOpen(false);
-  fetchFacilities();
-  resetForm();
-  setLoading(false);
+      if (userError) throw userError;
+
+      // ② 店舗との提携ルール（定期キープなど）を更新
+      const { error: connError } = await supabase
+        .from('shop_facility_connections')
+        .update({ 
+          regular_rules: formData.regular_rules 
+        })
+        .eq('facility_user_id', editingId)
+        .eq('shop_id', shopId);
+
+      if (connError) throw connError;
+
+    } else {
+      // --- ❷ 新規登録（アカウント作成 ＋ 提携） ---
+      
+      // ① まず施設アカウントを新規作成（facility_usersテーブル）
+      const { data: newUser, error: userError } = await supabase
+        .from('facility_users')
+        .insert([{
+          facility_name: formData.name,
+          login_id: formData.login_id || formData.email, 
+          password: formData.pw,
+          email: formData.email,
+          address: formData.address,
+          tel: formData.tel
+        }])
+        .select()
+        .single();
+
+      if (userError) throw userError;
+
+      // ② 次に、作成されたアカウントと「SnipSnap（店舗）」を提携させる
+      const { error: connError } = await supabase
+        .from('shop_facility_connections')
+        .insert([{
+          shop_id: shopId,
+          facility_user_id: newUser.id,
+          regular_rules: formData.regular_rules
+        }]);
+
+      if (connError) throw connError;
+    }
+
+    setIsModalOpen(false);
+    fetchFacilities(); // 最新の提携リストを再取得
+    resetForm();
+    alert('施設情報の保存と提携が完了しました！');
+
+  } catch (error) {
+    console.error("保存エラー:", error);
+    alert('保存に失敗しました: ' + error.message);
+  } finally {
+    setLoading(false);
+  }
 };
 
   const handleDelete = async (f) => {
@@ -172,11 +240,18 @@ const handleSave = async (e) => {
                   />
                   <button 
                     type="button"
-                    onClick={() => {
-                      const url = `${window.location.origin}/facility-login/${f.id}`;
-                      navigator.clipboard.writeText(`【${f.name}様 専用】\n入居者名簿の入力・確認はこちらからお願いします。\n\nURL: ${url}\nパスワード: ${f.pw}`);
-                      alert('招待メッセージをコピーしました！LINEなどで送ってください。');
-                    }}
+                    // 🆕 招待メッセージのコピー部分（修正後）
+onClick={() => {
+  const url = `${window.location.origin}/facility-login/${f.id}`;
+  navigator.clipboard.writeText(
+    `【${f.facility_name}様 専用】\nQUEST HUB 施設ポータルへのログイン情報です。\n\n` +
+    `URL: ${url}\n` +
+    `ログインID: ${f.login_id}\n` +
+    `パスワード: ${f.password}\n\n` +
+    `こちらから名簿の入力と訪問依頼が可能です。`
+  );
+  alert('招待メッセージをコピーしました！');
+}}
                     style={copyBtnStyle}
                   >
                     <Copy size={14} /> コピー
@@ -212,7 +287,11 @@ const handleSave = async (e) => {
                 <div style={scrollAreaStyle}>
                   <div style={formGridStyle}>
                     <label style={labelStyle}>施設名
-                      <input style={inputStyle} value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} required placeholder="例: あおバの里" />
+                      <input style={inputStyle} value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} required placeholder="例: マリアの丘" />
+                    </label>
+                    {/* 🆕 ログインIDの入力欄を追加 */}
+                    <label style={labelStyle}>施設ログインID（半角英数）
+                      <input style={inputStyle} value={formData.login_id} onChange={e => setFormData({...formData, login_id: e.target.value})} required placeholder="例: maria_oka" />
                     </label>
                     <label style={labelStyle}>パスワード
                       <input style={inputStyle} value={formData.pw} onChange={e => setFormData({...formData, pw: e.target.value})} required />

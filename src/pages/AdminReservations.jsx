@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
-import { Clipboard, Activity, BarChart3, Calendar } from 'lucide-react';
+import { Clipboard, Activity, BarChart3, Calendar, Building2 } from 'lucide-react';
 
 // 🆕 予約者名から固有のパステルカラーを生成するロジック
 const getCustomerColor = (name, type) => { // 💡 typeを引数に追加
@@ -34,6 +34,7 @@ function AdminReservations() {
   const [shop, setShop] = useState(null);
   const [staffs, setStaffs] = useState([]);
   const [reservations, setReservations] = useState([]);
+  const [visitRequests, setVisitRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
 
@@ -172,13 +173,21 @@ const { data: resData } = await supabase
   .in('shop_id', targetShopIds);
 
 // 2. 🆕 プライベート予定の取得
-const { data: privData } = await supabase
-  .from('private_tasks')
-  .select('*')
-  .eq('shop_id', shopId);
+    const { data: privData } = await supabase
+      .from('private_tasks')
+      .select('*')
+      .eq('shop_id', shopId);
 
-setReservations(resData || []);
-setPrivateTasks(privData || []); // 🆕 保存
+    // 3. 🆕 施設訪問依頼の取得
+    const { data: visitData } = await supabase
+      .from('visit_requests')
+      .select('*, facility_users(facility_name), visit_request_residents(count)')
+      .eq('shop_id', shopId)
+      .neq('status', 'completed'); // 完了済み以外を表示
+
+    setReservations(resData || []);
+    setPrivateTasks(privData || []);
+    setVisitRequests(visitData || []); // 🆕 新しくStateを作って保存（後述）
     setLoading(false);
   };
 
@@ -678,12 +687,34 @@ const getStatusAt = (dateStr, timeStr) => {
       return currentSlotStart >= start && currentSlotStart < end;
     }).map(p => ({ 
       ...p, 
-      res_type: 'private_task', // 描画側で判別するためのフラグ
-      customer_name: p.title    // 表示名を「辻 様」などの代わりに「予定名」にする
+      res_type: 'private_task', 
+      customer_name: p.title 
     }));
 
-    // 3. 2つのデータを合体させる
-    const matches = [...resMatches, ...privMatches];
+    // --- 🆕 3. 【公】施設訪問依頼(visit_requests)をチェック ---
+    const facilityMatches = visitRequests.filter(v => {
+      // 日付が一致しているか
+      const isDateMatch = v.scheduled_date === dateStr;
+      
+      // 💡 表示位置の制御
+      // 施設訪問は滞在時間が長いため、本来は開始〜終了時間で判定すべきですが、
+      // visit_requestsにまだ時間が無い場合は、とりあえず営業開始時間(例: 09:00)の枠に出します。
+      const openTime = shop?.business_hours?.[['sun','mon','tue','wed','thu','fri','sat'][dateObj.getDay()]]?.open || "09:00";
+      const isDisplaySlot = timeStr === openTime; 
+
+      return isDateMatch && isDisplaySlot;
+    }).map(v => ({
+      ...v,
+      res_type: 'facility_visit', 
+      customer_name: v.facility_users?.facility_name,
+      // 🆕 カレンダーが表示位置を特定できるように、現在のスロット時間（timeStr）をセット！
+      start_time: `${dateStr}T${timeStr}:00` 
+    }));
+
+    // 4. すべての予定を合体させる
+    const matches = [...resMatches, ...privMatches, ...facilityMatches];
+
+    if (matches.length > 0) return matches;
 
     if (matches.length > 0) return matches; 
 
@@ -1135,26 +1166,45 @@ onClick={() => {
                                   isStart && <span style={{fontSize:'0.65rem', fontWeight:'bold', color:'#94a3b8'}}>{firstRes.customer_name}</span>
                                 ) : (
                                   isStart ? (
-                                    <div style={{ fontWeight: 'bold', fontSize: isPC ? '0.85rem' : '0.7rem', color: isOtherShop ? '#94a3b8' : colors.text, textAlign: 'center', whiteSpace: 'nowrap', padding: '0 4px' }}>
-                                      {(() => {
-if (startingHere.length === 1) {
-            // 🆕 予約票の名前(snapshot)ではなく、マスタ側の最新名(admin_nameがあれば最優先)を特定する
-            const res = startingHere[0];
-            const masterName = res.res_type === 'private_task' ? res.customer_name : (res.customers?.name || res.customer_name);
-            
-            const name = masterName.split(/[\s　]+/)[0];
-            const countSuffix = reservationCount > 1 ? ` (${reservationCount}名)` : " 様";
-            return isPC ? (`${name}${countSuffix}`) : (
-                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1 }}>
-                                              <span style={{ writingMode: 'vertical-rl', textOrientation: 'upright' }}>{name}</span>
-                                              {reservationCount > 1 && <span style={{ fontSize: '0.6rem', marginTop: '2px' }}>({reservationCount})</span>}
-                                            </div>
-                                          );
-                                        }
-                                        return `👥 ${reservationCount}名`;
-                                      })()}
-                                    </div>
-                                  ) : null
+  <div style={{ fontWeight: 'bold', fontSize: isPC ? '0.85rem' : '0.7rem', color: isOtherShop ? '#94a3b8' : colors.text, textAlign: 'center', whiteSpace: 'nowrap', padding: '0 4px' }}>
+    {(() => {
+      if (startingHere.length === 1) {
+        const res = startingHere[0];
+
+        // 🆕 施設訪問（QUEST HUB経由）の場合の表示を割り込ませる
+        if (res.res_type === 'facility_visit') {
+          return (
+            <div style={{ 
+              display: 'flex', 
+              flexDirection: isPC ? 'row' : 'column', 
+              alignItems: 'center', 
+              gap: '4px', 
+              color: '#4f46e5' // 施設用カラー（インディゴ）
+            }}>
+              <Building2 size={isPC ? 16 : 12} strokeWidth={2.5} />
+              <span style={{ fontSize: isPC ? '0.8rem' : '0.65rem' }}>
+                {isPC ? res.customer_name : res.customer_name.slice(0, 4)}
+              </span>
+            </div>
+          );
+        }
+
+        // --- 以下、既存のロジック（プライベート予定・一般予約） ---
+        const masterName = res.res_type === 'private_task' ? res.customer_name : (res.customers?.name || res.customer_name);
+        const name = masterName.split(/[\s　]+/)[0];
+        const countSuffix = reservationCount > 1 ? ` (${reservationCount}名)` : " 様";
+
+        return isPC ? (`${name}${countSuffix}`) : (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1 }}>
+            <span style={{ writingMode: 'vertical-rl', textOrientation: 'upright' }}>{name}</span>
+            {reservationCount > 1 && <span style={{ fontSize: '0.6rem', marginTop: '2px' }}>({reservationCount})</span>}
+          </div>
+        );
+      }
+      return `👥 ${reservationCount}名`;
+    })()}
+  </div>
+) : null
                                 )}
                               </div>
                             )}

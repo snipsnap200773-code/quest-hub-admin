@@ -5,7 +5,8 @@ import { supabase } from "../../../supabaseClient";
 import { 
   CheckCircle2, Clock, User, ArrowLeft, 
   Calendar, CheckCircle, AlertCircle,
-  PlusCircle
+  PlusCircle,
+  Building2, ClipboardCheck
 } from 'lucide-react';
 
 const TodayTasks = () => {
@@ -124,37 +125,65 @@ const fetchMasterData = async () => {
   };
 
 const fetchTodayTasks = async () => {
-    setLoading(true);
-    
-    // 🆕 1. 日本時間の「今日の日付」を確実に作る [cite: 2026-03-08]
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    const todayStr = `${year}-${month}-${day}`; // "2026-03-08"
+  setLoading(true);
+  
+  // 1. 今日の日付文字列を作成（"2026-03-20" 形式）
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
-const { data, error } = await supabase
+  try {
+    // 2. 【個人予約】の取得
+    // customers(name, admin_name) を結合して取得します
+    const { data: resData, error: resError } = await supabase
       .from('reservations')
       .select('*, customers(name, admin_name)') 
       .eq('shop_id', shopId)
-      // 🆕 2. 文字列の「T」を抜いて、DBの timestamp 形式に合わせる [cite: 2026-03-08]
       .gte('start_time', `${todayStr} 00:00:00`)
       .lte('start_time', `${todayStr} 23:59:59`)
-      // 💡 修正：ステータス制限を外し、AdminManagementと同じく'normal'予約ならすべて表示します [cite: 2026-03-08]
-      .eq('res_type', 'normal') 
-      .order('start_time', { ascending: true });
-      
-    // 💡 修正後のログ確認用
-    console.log(`[デバッグ] 検索日付: ${todayStr} / 取得件数: ${data?.length || 0}`);
+      .eq('res_type', 'normal');
 
-    if (!error) {
-      setTasks(data || []);
-    } else {
-      console.error("取得エラー:", error.message);
-    }
-// ...省略 (fetchTodayTasks 関数の終わり)
+    if (resError) throw resError;
+
+    // 3. 【施設訪問依頼】の取得
+    // facility_users(facility_name) を結合して取得します
+    const { data: visitData, error: visitError } = await supabase
+      .from('visit_requests')
+      .select('*, facility_users(facility_name)')
+      .eq('shop_id', shopId)
+      .eq('scheduled_date', todayStr);
+
+    if (visitError) throw visitError;
+
+    // 4. データの整形とラベル（task_type）の付与
+    // 💡 これにより、UI側でアイコンやボタンを自動で出し分けられるようになります
+    const individualTasks = (resData || []).map(r => ({
+      ...r,
+      task_type: 'individual'
+    }));
+
+    const facilityTasks = (visitData || []).map(v => ({
+      ...v,
+      task_type: 'facility',
+      // 💡 施設訪問は「開始時間」がないため、並び替え用に「朝9時」を仮セット
+      start_time: `${v.scheduled_date} 09:00:00`, 
+      customer_name: v.facility_users?.facility_name 
+    }));
+
+    // 5. すべてを合体させて、開始時間順に並べ替え
+    const combined = [...individualTasks, ...facilityTasks].sort((a, b) => {
+      return new Date(a.start_time).getTime() - new Date(b.start_time).getTime();
+    });
+
+    setTasks(combined);
+    console.log(`[デバッグ] 今日の総タスク数: ${combined.length}件 (施設: ${facilityTasks.length}件)`);
+
+  } catch (error) {
+    console.error("タスク取得中に致命的なエラーが発生しました:", error.message);
+    showMsg("データの取得に失敗しました。");
+  } finally {
     setLoading(false);
-  };
+  }
+};
     
 const showMsg = (txt) => { setMessage(txt); setTimeout(() => setMessage(''), 3000); };
 
@@ -590,68 +619,101 @@ const handleSaveMemo = async () => {
           </div>
         ) : (
           // 🆕 修正：売上対象外を除外してから map で表示
-          tasks.filter(t => !isSalesExcludedTask(t)).map(task => (
-            <div key={task.id} style={{ 
-              background: task.status === 'completed' ? '#f8fafc' : '#fff', 
-              padding: '20px', 
-              borderRadius: '20px', 
-              border: task.status === 'completed' ? '1px solid #e2e8f0' : `2px solid ${themeColor}22`,
-              boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)',
-              opacity: task.status === 'completed' ? 0.7 : 1
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                    <Clock size={16} color={themeColor} />
-<span style={{ fontWeight: 'bold', fontSize: '1.1rem', color: '#1e293b' }}>
-  {/* ✅ 修正：start_time が NULL なら start_at を使う [cite: 2026-03-01] */}
-  {new Date(task.start_time || task.start_at).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })} 〜
-</span>
-                  </div>
-<div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#475569' }}>
-                    <User size={16} />
-                    <span style={{ fontWeight: 'bold' }}>{task.customer_name || 'お客様'} 様</span>
-                  </div>
-                  {/* 🆕 追加：カードに予約メニューを表示 [cite: 2026-03-08] */}
-                  <div style={{ fontSize: '0.85rem', color: themeColor, marginTop: '8px', fontWeight: 'bold', paddingLeft: '24px' }}>
-                    {task.menu_name || 'メニュー未設定'}
-                  </div>
-                </div>
+          tasks.map(task => {
+            const isFacility = task.task_type === 'facility';
+            
+            return (
+              <div key={task.id} style={{ 
+                background: task.status === 'completed' ? '#f8fafc' : '#fff', 
+                padding: '20px', 
+                borderRadius: '20px', 
+                border: task.status === 'completed' 
+                  ? '1px solid #e2e8f0' 
+                  : (isFacility ? `2px solid #4f46e544` : `2px solid ${themeColor}22`), // 施設は紫系に
+                boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)',
+                opacity: task.status === 'completed' ? 0.7 : 1
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '15px' }}>
+                  <div style={{ flex: 1, minWidth: '200px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                      <Clock size={16} color={isFacility ? '#4f46e5' : themeColor} />
+                      <span style={{ fontWeight: 'bold', fontSize: '1.1rem', color: '#1e293b' }}>
+                        {/* 🆕 施設の場合は「訪問」と強調 */}
+                        {isFacility ? '訪問予定' : new Date(task.start_time).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }) + ' 〜'}
+                      </span>
+                    </div>
 
-{task.status === 'completed' ? (
-  /* 💡 完了済みバッジの横に、取り消し用のボタンを配置 [cite: 2026-03-08] */
-  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
-    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#10b981', fontWeight: 'bold', fontSize: '0.9rem' }}>
-      <CheckCircle size={20} /> 完了済み
-    </div>
-    {/* 🆕 修正用ボタンを追加 [cite: 2026-03-08] */}
-    <button 
-      onClick={() => handleRevertTask(task)}
-      style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '0.75rem', cursor: 'pointer', textDecoration: 'underline', padding: '4px' }}
-    >
-      修正する（お会計を戻す）
-    </button>
-  </div>
-) : (
-  /* ✅ 修正：2列ボタンにして、左側にお客様情報ボタンを配置 [cite: 2026-03-08] */
-  <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
-    <button
-      onClick={() => openCustomerInfo(task)}
-      style={{ flex: 1, padding: '12px', background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.85rem' }}
-    >
-      履歴
-    </button>
-    <button
-      onClick={() => openQuickCheckout(task)}
-      style={{ flex: 2, padding: '12px', background: themeColor, color: '#fff', border: 'none', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.9rem', boxShadow: `0 4px 12px ${themeColor}44` }}
-    >
-      お会計 ＆ 完了
-    </button>
-  </div>
-)}
-               </div>
-            </div>
-          ))
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#1e293b' }}>
+                      {/* 🆕 アイコンの出し分け */}
+                      {isFacility ? <Building2 size={18} color="#4f46e5" strokeWidth={2.5} /> : <User size={18} />}
+                      <span style={{ fontWeight: '900', fontSize: '1.2rem' }}>
+                        {task.customer_name} {isFacility ? '' : '様'}
+                      </span>
+                    </div>
+
+                    <div style={{ fontSize: '0.85rem', color: isFacility ? '#4f46e5' : themeColor, marginTop: '8px', fontWeight: 'bold', paddingLeft: '26px' }}>
+                      {isFacility ? '施設訪問カット（名簿あり）' : (task.menu_name || 'メニュー未設定')}
+                    </div>
+                  </div>
+
+                  {task.status === 'completed' ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#10b981', fontWeight: 'bold', fontSize: '0.9rem' }}>
+                        <CheckCircle size={20} /> 完了済み
+                      </div>
+                      <button 
+                        onClick={() => handleRevertTask(task)}
+                        style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '0.75rem', cursor: 'pointer', textDecoration: 'underline' }}
+                      >
+                        修正する（戻す）
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      {isFacility ? (
+                        /* 🏢 施設訪問用：名簿ポチポチ画面へ一直線！ */
+                        <button
+                          onClick={() => navigate(`/admin/${shopId}/visit-requests/${task.id}`)}
+                          style={{ 
+                            padding: '16px 24px', 
+                            background: '#4f46e5', 
+                            color: '#fff', 
+                            border: 'none', 
+                            borderRadius: '15px', 
+                            fontWeight: 'bold', 
+                            cursor: 'pointer', 
+                            fontSize: '1rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            boxShadow: '0 4px 12px rgba(79, 70, 229, 0.3)'
+                          }}
+                        >
+                          <ClipboardCheck size={20} /> 名簿の入力を開始
+                        </button>
+                      ) : (
+                        /* 👤 個人客用：既存のレジフロー */
+                        <>
+                          <button
+                            onClick={() => openCustomerInfo(task)}
+                            style={{ padding: '12px 15px', background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.85rem' }}
+                          >
+                            履歴
+                          </button>
+                          <button
+                            onClick={() => openQuickCheckout(task)}
+                            style={{ padding: '12px 20px', background: themeColor, color: '#fff', border: 'none', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.9rem', boxShadow: `0 4px 12px ${themeColor}44` }}
+                          >
+                            お会計 ＆ 完了
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })
         )}
       </div>
 

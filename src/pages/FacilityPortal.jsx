@@ -5,7 +5,8 @@ import {
   Users, UserPlus, Search, Building2, 
   Save, LogOut, ChevronRight, X, Trash2, Check,
   Edit3,
-  Calendar, AlertCircle
+  Calendar, AlertCircle,
+  Store, CalendarCheck // 🆕 この2つを追加
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -31,27 +32,41 @@ const FacilityPortal = () => {
   const [selectedResidentIds, setSelectedResidentIds] = useState([]); // 今回カットする人のIDリスト
   const [isRequestSaving, setIsRequestSaving] = useState(false); // 保存中フラグ
 
-  // 認証チェック（ログイン画面を通ったか）
+  // 🆕 認証チェック（プラットフォーム統合仕様）
   useEffect(() => {
-    const isAuth = sessionStorage.getItem(`facility_auth_${facilityId}`);
-    if (!isAuth) {
+    const loggedInId = sessionStorage.getItem('facility_user_id');
+    const isActive = sessionStorage.getItem('facility_auth_active');
+
+    // ログインしていない、またはURLのIDとログインIDが一致しない場合は戻す
+    if (!isActive || loggedInId !== facilityId) {
       navigate(`/facility-login/${facilityId}`);
       return;
     }
     fetchData();
   }, [facilityId]);
 
+  const [connectedShops, setConnectedShops] = useState([]); // 🆕 提携店舗用のStateをコンポーネント内に追加してください
+
   const fetchData = async () => {
     setLoading(true);
-    // 1. 施設情報の取得（tenant_idも取得するように変更）
-    const { data: fData } = await supabase.from('facilities').select('*').eq('id', facilityId).single();
+    
+    // 1. 施設マスター情報の取得
+    const { data: fData } = await supabase.from('facility_users').select('*').eq('id', facilityId).single();
     if (fData) setFacility(fData);
 
-    // 2. 🆕 進行中の訪問依頼（未完了の最新1件）を取得
+    // 2. 提携している「サービス（店舗）」の一覧を取得
+    const { data: shopData } = await supabase
+      .from('shop_facility_connections')
+      .select(`*, profiles (id, business_name, business_type, theme_color)`)
+      .eq('facility_user_id', facilityId)
+      .eq('status', 'active');
+    setConnectedShops(shopData || []);
+
+    // --- 🆕 追加：進行中の訪問依頼（未完了の最新1件）をDBから取得 ---
     const { data: reqData } = await supabase
       .from('visit_requests')
       .select('*, visit_request_residents(resident_id)')
-      .eq('facility_id', facilityId)
+      .eq('facility_user_id', facilityId)
       .neq('status', 'completed')
       .order('created_at', { ascending: false })
       .limit(1)
@@ -59,18 +74,18 @@ const FacilityPortal = () => {
 
     if (reqData) {
       setActiveRequest(reqData);
-      // 既にDBに登録済みの入居者をチェック状態にセット
+      // DBに保存済みのメンバーがいればチェック状態を復元
       setSelectedResidentIds(reqData.visit_request_residents.map(r => r.resident_id));
     } else {
       setActiveRequest(null);
-      setSelectedResidentIds([]);
+      // 予約がない場合は、現在の手元での選択（selectedResidentIds）を維持します
     }
 
-    // 3. 全入居者名簿の取得
+    // 3. 共通入居者名簿の取得
     const { data: rData } = await supabase
       .from('residents')
       .select('*')
-      .eq('facility_id', facilityId)
+      .eq('facility_user_id', facilityId)
       .eq('is_active', true)
       .order('room_number', { ascending: true });
     
@@ -80,7 +95,8 @@ const FacilityPortal = () => {
 
   const handleSave = async (e) => {
     e.preventDefault();
-    const payload = { ...formData, facility_id: facilityId };
+    // 🆕 古い facility_id ではなく、新しい facility_user_id をセットする
+    const payload = { ...formData, facility_user_id: facilityId }; 
     
     let error;
     if (editingId) {
@@ -104,11 +120,7 @@ const FacilityPortal = () => {
 
   // 名簿の左側にあるチェック円をタップした時の動作
   const handleToggleResident = (id) => {
-    if (!activeRequest) {
-      alert("先に訪問日程の確保（予約）が必要です。");
-      return;
-    }
-    // 既にリストにいれば除外、いなければ追加する
+    // 💡 予約がなくてもチェック可能にします（Scenario C: 名簿 ➔ 予約 のため）
     setSelectedResidentIds(prev => 
       prev.includes(id) ? prev.filter(rid => rid !== id) : [...prev, id]
     );
@@ -158,32 +170,34 @@ const FacilityPortal = () => {
     }
   };
 
-  // --- 🆕 追加：訪問日程（枠）を新規作成するロジック ---
+  // --- 🆕 アップグレード：カレンダー画面へ移動して日程を確保する ---
   const handleCreateFixedRequest = async () => {
     if (!facility) return;
-    
-    // 💡 運用メモ: 本来はカレンダーから選ばせたいですが、まずは直感的に日付を入力してもらう形にします
-    const nextDate = window.prompt("訪問予定日を入力してください (例: 2026-04-10)", "");
-    if (!nextDate) return;
 
-    const { data, error } = await supabase
-      .from('visit_requests')
-      .insert([{
-        facility_id: facilityId,
-        tenant_id: facility.tenant_id, // 施設に紐付いている店舗IDを使用
-        scheduled_date: nextDate,
-        status: 'pending'
-      }])
-      .select()
+    // 1. まずこの施設が提携している店舗（SnipSnapなど）のIDを取得
+    // ※今はSnipSnap固定ですが、将来的に複数業者から選べるようにここを拡張します
+    const { data: connection } = await supabase
+      .from('shop_facility_connections')
+      .select('shop_id')
+      .eq('facility_user_id', facilityId)
+      .eq('status', 'active')
+      .limit(1)
       .single();
 
-    if (!error) {
-      alert(`${nextDate} の枠を確保しました！\n名簿の左側をタップして、カット希望者を選べるようになります。`);
-      fetchData(); // 画面を再読み込みして「保存バー」を出現させる
-    } else {
-      console.error(error);
-      alert('枠の確保に失敗しました。');
+    if (!connection) {
+      alert("提携している店舗が見つかりません。店舗側での承認が必要です。");
+      return;
     }
+
+    // 2. 既存のカレンダー画面へ遷移
+    // mode: 'facility' を渡すことで、カレンダー側で「施設用枠確保」として動かします
+    navigate(`/shop/${connection.shop_id}/reserve/time`, { 
+      state: { 
+        mode: 'facility',
+        facilityUserId: facilityId,
+        totalSlotsNeeded: 12, // 施設訪問用に3時間分（15分×12コマ）などの枠を想定
+      } 
+    });
   };
 
   // --- 追加ここまで ---
@@ -204,13 +218,47 @@ const FacilityPortal = () => {
       {/* 施設ポータルヘッダー */}
       <header style={headerStyle}>
         <div>
-          <div style={facilityLabelStyle}><Building2 size={14} /> 施設専用ポータル</div>
-          <h1 style={titleStyle}>{facility?.name} 様</h1>
+          <div style={facilityLabelStyle}><Building2 size={14} /> QUEST HUB 施設ポータル</div>
+          <h1 style={titleStyle}>{facility?.facility_name || "読み込み中..."} 様</h1>
         </div>
-        <button onClick={() => { sessionStorage.removeItem(`facility_auth_${facilityId}`); navigate(`/facility-login/${facilityId}`); }} style={logoutBtnStyle}>
+        <button 
+          onClick={() => { 
+            sessionStorage.clear(); // 🆕 セッションを全クリア
+            navigate(`/facility-login/${facilityId}`); 
+          }} 
+          style={logoutBtnStyle}
+        >
           <LogOut size={18} /> ログアウト
         </button>
       </header>
+
+      {/* 🆕 提携サービス（SnipSnapなど）セクション */}
+      <section style={sectionAreaStyle}>
+        <h2 style={sectionTitleStyle}><Store size={18} /> 提携サービス（業者）</h2>
+        <div style={shopGridStyle}>
+          {connectedShops.map(con => (
+            <div key={con.id} style={{...shopCardStyle, borderTop: `4px solid ${con.profiles?.theme_color || '#4f46e5'}`}}>
+              <div style={shopInfoStyle}>
+                <h3 style={shopNameStyle}>{con.profiles?.shop_name}</h3>
+                <span style={shopTagStyle}>{con.profiles?.business_type || '訪問サービス'}</span>
+              </div>
+              <button 
+                onClick={() => navigate(`/shop/${con.shop_id}/reserve/time`, { 
+                  state: { mode: 'facility', facilityUserId: facilityId, totalSlotsNeeded: 12 } 
+                })}
+                style={bookingBtnStyle}
+              >
+                <CalendarCheck size={16} /> 予約・依頼
+              </button>
+            </div>
+          ))}
+          {connectedShops.length === 0 && (
+            <div style={emptyCardStyle}>提携中の業者はありません</div>
+          )}
+        </div>
+      </section>
+
+      <div style={{...sectionTitleStyle, marginTop: '30px'}}><Users size={18} /> 共通入居者名簿</div>
 
       {/* 検索・追加エリア */}
       <div style={actionRowStyle}>
@@ -282,29 +330,79 @@ const FacilityPortal = () => {
         {filteredResidents.length === 0 && <div style={emptyTextStyle}>入居者が登録されていません</div>}
       </div>
 
-      {/* 🆕 追加：予約がない時は「日程確保」、ある時は「保存バー」を表示 */}
+      {/* 🆕 アップグレード版：状況に合わせてボタンの役割を自動変更 */}
       {!activeRequest ? (
+        /* --- 予約（枠）がまだ無いとき --- */
         <div style={floatingBarStyle}>
           <div style={floatingInfoStyle}>
-            <AlertCircle size={16} color="#f59e0b" />
-            <span>次回の訪問予定が設定されていません</span>
+            {selectedResidentIds.length > 0 ? (
+              <span style={{color: '#4f46e5'}}><Users size={16} /> {selectedResidentIds.length}名を選択中</span>
+            ) : (
+              <span style={{color: '#64748b'}}><AlertCircle size={16} /> 次回の予定がありません</span>
+            )}
           </div>
+          
           <button 
-            onClick={handleCreateFixedRequest} 
-            style={{...mainActionBtnStyle, background: '#1e293b'}}
+            onClick={() => {
+              // 提携店舗（SnipSnapなど）がない場合はエラー
+              if (connectedShops.length === 0) return alert("提携店舗が見つかりません");
+
+              // カレンダーへ遷移。名簿が選ばれていればそのリストも一緒に渡す
+              navigate(`/shop/${connectedShops[0].profiles.id}/reserve/time`, { 
+                state: { 
+                  mode: 'facility', 
+                  facilityUserId: facilityId, 
+                  selectedResidentIds: selectedResidentIds // 0名でもそのまま渡す
+                } 
+              });
+            }}
+            style={{
+              ...mainActionBtnStyle, 
+              background: selectedResidentIds.length > 0 ? '#4f46e5' : '#1e293b'
+            }}
           >
-            <Calendar size={18} /> いつもの定期枠で日程を確保する
+            {selectedResidentIds.length > 0 ? (
+              <><CalendarCheck size={18} /> このメンバーで日程を選ぶ</>
+            ) : (
+              <><Calendar size={18} /> まずは訪問日だけキープする</>
+            )}
           </button>
         </div>
       ) : (
+        /* --- 既に予約（枠）があるとき --- */
         <div style={floatingBarStyle}>
           <div style={floatingInfoStyle}>
-             <span style={dateBadgeStyle}>{activeRequest.scheduled_date || '日程未定'}</span>
+             <span style={dateBadgeStyle}>{activeRequest.scheduled_date}</span>
              <span>のカット依頼を編集中（{selectedResidentIds.length}名）</span>
           </div>
           <div style={floatingActionStyle}>
-            <button onClick={() => handleSaveVisitList(false)} style={subActionBtnStyle}>一時保存</button>
-            <button onClick={() => handleSaveVisitList(true)} style={mainActionBtnStyle}>名簿を確定する</button>
+            <button 
+              onClick={() => handleSaveVisitList(false)} 
+              disabled={isRequestSaving}
+              style={subActionBtnStyle}
+            >
+              一時保存
+            </button>
+            <button 
+              onClick={() => handleSaveVisitList(true)} 
+              disabled={isRequestSaving}
+              style={mainActionBtnStyle}
+            >
+              名簿を確定する
+            </button>
+            {/* 🆕 予定日を変更したい場合もカレンダーへ飛ばす */}
+            <button 
+              onClick={() => navigate(`/shop/${connectedShops[0].profiles.id}/reserve/time`, { 
+                state: { 
+                  mode: 'facility', 
+                  facilityUserId: facilityId, 
+                  requestId: activeRequest.id // 既存の枠IDを渡す
+                } 
+              })}
+              style={{...subActionBtnStyle, width: 'auto', flex: 'none', padding: '14px'}}
+            >
+              <Calendar size={18} />
+            </button>
           </div>
         </div>
       )}
@@ -485,5 +583,15 @@ const mainActionBtnStyle = {
   fontSize: '0.9rem',
   boxShadow: '0 4px 6px -1px rgba(79, 70, 229, 0.2)'
 };
+
+const sectionAreaStyle = { marginBottom: '30px' };
+const sectionTitleStyle = { fontSize: '0.9rem', fontWeight: 'bold', color: '#64748b', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '8px' };
+const shopGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '15px' };
+const shopCardStyle = { background: '#fff', padding: '20px', borderRadius: '20px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column', gap: '15px' };
+const shopNameStyle = { margin: 0, fontSize: '1.1rem', color: '#1e293b' };
+const shopTagStyle = { fontSize: '0.7rem', color: '#94a3b8', background: '#f8fafc', padding: '2px 8px', borderRadius: '6px' };
+const shopInfoStyle = { flex: 1 };
+const bookingBtnStyle = { background: '#1e293b', color: '#fff', border: 'none', padding: '12px', borderRadius: '12px', fontWeight: 'bold', fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' };
+const emptyCardStyle = { gridColumn: '1/-1', textAlign: 'center', padding: '30px', background: '#fff', borderRadius: '20px', color: '#cbd5e1', fontSize: '0.8rem', border: '2px dashed #f1f5f9' };
 
 export default FacilityPortal;

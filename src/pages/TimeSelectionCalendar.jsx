@@ -591,11 +591,69 @@ function TimeSelectionCalendar() {
           </div>
           <button 
             style={{ width: '100%', maxWidth: '400px', padding: '18px', background: themeColor, color: '#fff', border: 'none', borderRadius: '16px', fontWeight: 'bold', fontSize: '1.1rem', boxShadow: `0 8px 20px ${themeColor}44`, cursor: 'pointer' }} 
-            onClick={() => navigate(`/shop/${shopId}/confirm`, { 
-              state: { ...location.state, date: selectedDate.toLocaleDateString('sv-SE'), time: selectedTime, staffId: targetStaff?.id || staffIdFromUrl || location.state?.staffId } 
-            })}
+            onClick={async () => {
+              // 🆕 1. 施設予約モード（mode: 'facility'）の場合
+              if (location.state?.mode === 'facility') {
+                const { facilityUserId, requestId, selectedResidentIds } = location.state;
+                const dateStr = selectedDate.toLocaleDateString('sv-SE');
+
+                try {
+                  let targetRequestId = requestId;
+
+                  // --- シナリオB：既に枠（リクエスト）がある場合（キープ後の確定） ---
+                  if (targetRequestId) {
+                    await supabase
+                      .from('visit_requests')
+                      .update({ 
+                        scheduled_date: dateStr,
+                        status: 'confirmed',
+                        is_list_confirmed: true // 日程確定と同時に名簿も確定扱いにする
+                      })
+                      .eq('id', targetRequestId);
+                  } 
+                  // --- シナリオC：枠がない場合（いきなり予約） ---
+                  else {
+                    const { data: newReq, error: reqErr } = await supabase
+  .from('visit_requests')
+  .insert([{
+    facility_user_id: facilityUserId, // 🆕 新しい施設マスターID
+    shop_id: shopId,                // 🆕 tenant_idから名前を変えたもの
+    scheduled_date: dateStr,
+    status: 'confirmed',
+    is_list_confirmed: true
+  }])
+                      .select().single();
+                    
+                    if (reqErr) throw reqErr;
+                    targetRequestId = newReq.id;
+
+                    // 選んでいた名簿メンバーを紐付ける
+                    if (selectedResidentIds?.length > 0) {
+                      const inserts = selectedResidentIds.map(rid => ({
+                        request_id: targetRequestId,
+                        resident_id: rid
+                      }));
+                      await supabase.from('visit_request_residents').insert(inserts);
+                    }
+                  }
+
+                  alert(`${dateStr} ${selectedTime}〜 で訪問予約を確定しました！`);
+                  navigate(`/facility-portal/${facilityUserId}/residents`);
+                } catch (err) {
+                  console.error(err);
+                  alert('予約の保存中にエラーが発生しました。');
+                }
+                return;
+              }
+
+              // 2. 通常の一般客予約（既存の動き）
+              navigate(`/shop/${shopId}/confirm`, { 
+                state: { ...location.state, date: selectedDate.toLocaleDateString('sv-SE'), time: selectedTime, staffId: targetStaff?.id || staffIdFromUrl || location.state?.staffId } 
+              });
+            }}
           >
-            予約内容の確認へ進む
+            {/* 🆕 文言もモードによって切り替え */}
+            {location.state?.mode === 'facility' ? 'この日時で訪問予約を確定する' : '予約内容の確認へ進む'}
           </button>
         </div>
       )}
