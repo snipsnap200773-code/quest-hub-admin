@@ -5,7 +5,8 @@ import {
   Settings, Menu as MenuIcon, Clock, ClipboardList, 
   ExternalLink, MessageCircle, MapPin, Sparkles, Mail,
   Users,
-  Layout
+  Layout,
+  Building2 // 🆕 これを追加
 } from 'lucide-react';
 
 const AdminDashboard = () => {
@@ -135,6 +136,20 @@ const AdminDashboard = () => {
           to={`/admin/${shopId}/reservations`}
           cardStyle={cardStyle} iconBoxStyle={iconBoxStyle} 
         />
+
+        {/* 🆕 施設管理カード（条件付き表示） */}
+        {/* 業種が「訪問」を含む、または小カテゴリが「施設訪問」などの場合に表示 */}
+        {(shopData?.business_type?.includes('訪問') || shopData?.sub_business_type === '施設訪問') && (
+          <NavCard 
+            title="施設管理" 
+            desc="訪問先施設の登録・入居者名簿の管理" 
+            icon={<Building2 size={28} />} 
+            color="#4f46e5"
+            to={`/admin/${shopId}/facilities`}
+            cardStyle={cardStyle} 
+            iconBoxStyle={iconBoxStyle} 
+          />
+        )}
 
         {/* スタッフ管理 */}
         <NavCard 

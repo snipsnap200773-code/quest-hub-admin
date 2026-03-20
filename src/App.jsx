@@ -37,6 +37,11 @@ import BasicSettingsGuide from './pages/admin/settings/BasicSettingsGuide';
 import MenuSettingsGuide from './pages/admin/settings/MenuSettingsGuide';
 import ScheduleSettingsGuide from './pages/admin/settings/ScheduleSettingsGuide';
 
+// ✨ 施設用
+import FacilityManagement from './pages/admin/FacilityManagement';
+import FacilityLogin from './pages/FacilityLogin';
+import FacilityPortal from './pages/FacilityPortal';
+
 // 🔝 自動スクロール装置
 import ScrollToTop from './components/ScrollToTop';
 
@@ -88,6 +93,11 @@ function App() {
         <Route path="/admin/:shopId/settings/basic-guide" element={<BasicSettingsGuide />} />
         <Route path="/admin/:shopId/settings/menu-guide" element={<MenuSettingsGuide />} />
         <Route path="/admin/:shopId/settings/schedule-guide" element={<ScheduleSettingsGuide />} />
+
+        {/* 施設用 */}
+        <Route path="/admin/:shopId/facilities" element={<FacilityManagement />} />
+        <Route path="/facility-login/:facilityId" element={<FacilityLogin />} /> {/* 🆕 */}
+        <Route path="/facility-portal/:facilityId/residents" element={<FacilityPortal />} />
 
 {/* --- 📱 ユーザーエリア --- */}
         <Route path="*" element={
