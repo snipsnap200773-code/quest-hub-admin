@@ -8,7 +8,8 @@ import { supabase } from '../supabaseClient';
 import { 
   MapPin, Plus, Trash2, Save, Image as ImageIcon, Bell, Search, 
   Filter, Store, UserCheck, ShieldAlert, Copy, ExternalLink, 
-  Edit2, PlusSquare, Settings, List, LayoutDashboard, CheckCircle2, XCircle, Send
+  Edit2, PlusSquare, Settings, List, LayoutDashboard, CheckCircle2, XCircle, Send,
+  Building2
 } from 'lucide-react';
 
 // 🗑️ ここにあった「const INDUSTRY_OPTIONS = [...]」は削除しました
@@ -28,6 +29,18 @@ function SuperAdmin() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeCategory, setActiveCategory] = useState('すべて');
+
+  // --- 🆕 施設管理用のStateを追加 ---
+  const [facilities, setFacilities] = useState([]);
+  const [newFacilityName, setNewFacilityName] = useState('');
+  const [newFacilityLoginId, setNewFacilityLoginId] = useState('');
+  const [newFacilityPass, setNewFacilityPass] = useState('');
+  const [editingFacilityId, setEditingFacilityId] = useState(null);
+  const [editFacilityName, setEditFacilityName] = useState('');
+  const [editFacilityLoginId, setEditFacilityLoginId] = useState('');
+  const [editFacilityPass, setEditFacilityPass] = useState('');
+  // ------------------------------
+
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [activeTab, setActiveTab] = useState('list');
   const [isProcessing, setIsProcessing] = useState(false); // 送信中状態
@@ -75,8 +88,18 @@ function SuperAdmin() {
 
   const fetchAllData = async () => {
     setLoading(true);
-    await Promise.all([fetchCreatedShops(), fetchPortalContent()]);
+    // 🆕 fetchFacilities を追加
+    await Promise.all([fetchCreatedShops(), fetchPortalContent(), fetchFacilities()]);
     setLoading(false);
+  };
+
+  // --- 🆕 施設一覧を取得する関数を追加 ---
+  const fetchFacilities = async () => {
+    const { data, error } = await supabase
+      .from('facility_users')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (!error) setFacilities(data || []);
   };
 
   const handleLogin = (e) => {
@@ -176,6 +199,64 @@ function SuperAdmin() {
     setNewEmail(''); setNewPhone('');    setIsProcessing(false);
     fetchCreatedShops();
     setActiveTab('list');
+  };
+
+  // --- 🆕 施設（Hub）を新規発行するロジック ---
+  const createNewFacility = async () => {
+    if (!newFacilityName || !newFacilityLoginId || !newFacilityPass) return alert('全項目入力してください');
+    
+    setIsProcessing(true);
+    const { error } = await supabase.from('facility_users').insert([{
+      id: crypto.randomUUID(),
+      facility_name: newFacilityName,
+      login_id: newFacilityLoginId,
+      password: newFacilityPass
+    }]);
+
+    if (!error) {
+      alert(`施設「${newFacilityName}」を発行しました！`);
+      setNewFacilityName(''); setNewFacilityLoginId(''); setNewFacilityPass('');
+      fetchFacilities(); // リストを更新
+    } else {
+      alert('エラー: ' + error.message);
+    }
+    setIsProcessing(false);
+  };
+
+  // --- 🆕 施設情報を更新するロジック ---
+  const updateFacilityInfo = async (id) => {
+    const { error } = await supabase
+      .from('facility_users')
+      .update({ 
+        facility_name: editFacilityName, 
+        login_id: editFacilityLoginId, 
+        password: editFacilityPass 
+      })
+      .eq('id', id);
+
+    if (!error) { 
+      setEditingFacilityId(null); 
+      fetchFacilities(); 
+      alert('施設情報を更新しました'); 
+    } else {
+      alert('更新失敗: ' + error.message);
+    }
+  };
+
+  // --- 🆕 施設を削除するロジック（店舗と同じ削除PWを使用） ---
+  const deleteFacility = async (facility) => {
+    const input = window.prompt(`施設「${facility.facility_name}」を削除しますか？\n削除パスワードを入力してください：`);
+    if (input === DELETE_PASSWORD) {
+      const { error } = await supabase.from('facility_users').delete().eq('id', facility.id);
+      if (!error) { 
+        fetchFacilities(); 
+        alert('施設を削除しました'); 
+      } else {
+        alert('削除失敗: ' + error.message);
+      }
+    } else if (input !== null) {
+      alert('パスワードが違います');
+    }
   };
 
 const updateShopInfo = async (id) => {
@@ -450,39 +531,179 @@ const updateShopInfo = async (id) => {
           </div>
   );
 
+  // --- 🆕 施設管理画面のレンダリングパーツ ---
+  const renderFacilityManagement = () => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', width: '100%' }}>
+      {/* 1. 施設作成フォーム */}
+      <div style={panelStyle}>
+        <h3 style={panelTitle}><PlusSquare size={18} /> 施設（Hub）の新規発行</h3>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <label style={{fontSize: '0.75rem', fontWeight: 'bold', color: '#64748b'}}>施設名</label>
+          <input value={newFacilityName} onChange={e => setNewFacilityName(e.target.value)} placeholder="例：マリアの丘" style={smallInput} />
+          
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <div style={{ flex: 1 }}>
+              <label style={{fontSize: '0.75rem', fontWeight: 'bold', color: '#64748b'}}>ログインID</label>
+              <input value={newFacilityLoginId} onChange={e => setNewFacilityLoginId(e.target.value)} placeholder="半角英数字" style={smallInput} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={{fontSize: '0.75rem', fontWeight: 'bold', color: '#64748b'}}>パスワード</label>
+              <input value={newFacilityPass} onChange={e => setNewFacilityPass(e.target.value)} placeholder="初期設定PW" style={smallInput} />
+            </div>
+          </div>
+
+          <button 
+            onClick={createNewFacility} 
+            disabled={isProcessing}
+            style={{ ...primaryBtn, background: '#4f46e5' }}
+          >
+            {isProcessing ? '発行中...' : 'Hubページを発行する'}
+          </button>
+        </div>
+      </div>
+
+      {/* 2. 発行済み施設リスト */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+        <h3 style={panelTitle}><List size={18} /> 発行済みHub一覧（{facilities.length}件）</h3>
+        {facilities.map(f => {
+          const isEditing = editingFacilityId === f.id;
+          return (
+            <div key={f.id} style={panelStyle}>
+              {/* ヘッダー：名前とアクションボタン */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                {isEditing ? (
+                  <input 
+                    value={editFacilityName} 
+                    onChange={e => setEditFacilityName(e.target.value)} 
+                    style={{ ...smallInput, fontWeight: 'bold' }} 
+                    placeholder="施設名" 
+                  />
+                ) : (
+                  <h4 style={{ margin: 0, fontWeight: '900', color: '#1e293b' }}>{f.facility_name}</h4>
+                )}
+                
+                <div style={{ display: 'flex', gap: '12px', marginLeft: '10px' }}>
+                  <Edit2 
+                    size={16} 
+                    color="#64748b" 
+                    style={{ cursor: 'pointer' }} 
+                    onClick={() => {
+                      setEditingFacilityId(f.id);
+                      setEditFacilityName(f.facility_name);
+                      setEditFacilityLoginId(f.login_id);
+                      setEditFacilityPass(f.password);
+                    }} 
+                  />
+                  <Trash2 
+                    size={16} 
+                    color="#ef4444" 
+                    style={{ cursor: 'pointer' }} 
+                    onClick={() => deleteFacility(f)} 
+                  />
+                </div>
+              </div>
+
+              {isEditing ? (
+                /* 編集モードの入力エリア */
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input value={editFacilityLoginId} onChange={e => setEditFacilityLoginId(e.target.value)} style={smallInput} placeholder="ID" />
+                    <input value={editFacilityPass} onChange={e => setEditFacilityPass(e.target.value)} style={smallInput} placeholder="PW" />
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button onClick={() => updateFacilityInfo(f.id)} style={{ ...primaryBtn, background: '#10b981', flex: 1, padding: '10px' }}>保存</button>
+                    <button onClick={() => setEditingFacilityId(null)} style={{ ...primaryBtn, background: '#94a3b8', flex: 1, padding: '10px' }}>キャンセル</button>
+                  </div>
+                </div>
+              ) : (
+                /* 通常表示モード */
+                <>
+                  <UrlBox 
+                    label="Hub URL" 
+                    url={`${window.location.origin}/facility-portal/${f.id}/residents`} 
+                    onCopy={copyToClipboard} 
+                  />
+                  <div style={{ marginTop: '10px', borderTop: '1px solid #f1f5f9', paddingTop: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: '15px' }}>
+                      <span style={{ fontSize: '0.7rem', color: '#64748b' }}>ID: <strong>{f.login_id}</strong></span>
+                      <span style={{ fontSize: '0.7rem', color: '#64748b' }}>PW: <strong>{f.password}</strong></span>
+                    </div>
+                    <button 
+                      onClick={() => window.open(`/facility-portal/${f.id}/residents`, '_blank')}
+                      style={{ background: 'none', border: 'none', color: '#4f46e5', fontSize: '0.75rem', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    >
+                      ポータルを開く <ExternalLink size={12} />
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
   return (
     <div style={{ backgroundColor: '#f0f2f5', minHeight: '100vh', paddingBottom: isMobile ? '100px' : '20px', boxSizing: 'border-box', overflowX: 'hidden' }}>
       <div style={{ maxWidth: '1000px', margin: '0 auto', padding: isMobile ? '10px' : '25px' }}>
         
-        {/* 統計エリア */}
-        <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', overflowX: 'auto', WebkitOverflowScrolling: 'touch', paddingBottom: '5px' }}>
-          <div style={statsCard}>全 {stats.total}</div>
-          <div style={{ ...statsCard, color: '#10b981' }}>公開 {stats.active}</div>
-          <div style={{ ...statsCard, color: '#ef4444' }}>停止 {stats.suspended}</div>
-          <div style={{ ...statsCard, color: '#7c3aed', border: '1px solid #7c3aed' }}>管理許可 {stats.managementEnabled}</div>
+        {/* --- 🆕 修正：PC/スマホ共通のトップタブ --- */}
+        <div style={{ display: 'flex', background: '#fff', padding: '5px', borderRadius: '15px', marginBottom: '25px', boxShadow: '0 4px 10px rgba(0,0,0,0.05)' }}>
+          <button 
+            onClick={() => setActiveTab('list')} 
+            style={{ flex: 1, padding: '12px', border: 'none', borderRadius: '12px', background: activeTab === 'list' || activeTab === 'add' ? '#1e293b' : 'transparent', color: activeTab === 'list' || activeTab === 'add' ? '#fff' : '#64748b', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+          >
+            <Store size={18} /> 業者（店舗）管理
+          </button>
+          <button 
+            onClick={() => setActiveTab('facility')} 
+            style={{ flex: 1, padding: '12px', border: 'none', borderRadius: '12px', background: activeTab === 'facility' ? '#4f46e5' : 'transparent', color: activeTab === 'facility' ? '#fff' : '#64748b', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+          >
+            <Building2 size={18} /> 施設（Hub）管理
+          </button>
+          <button 
+            onClick={() => setActiveTab('config')} 
+            style={{ flex: 1, padding: '12px', border: 'none', borderRadius: '12px', background: activeTab === 'config' ? '#1e293b' : 'transparent', color: activeTab === 'config' ? '#fff' : '#64748b', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+          >
+            <Settings size={18} /> 全体設定
+          </button>
         </div>
 
-        {isMobile ? (
-          <div style={{ width: '100%' }}>
-            {activeTab === 'list' && renderShopList()}
-            {activeTab === 'add' && renderAddShop()}
-            {activeTab === 'config' && renderPortalSettings()}
-            
-            <div style={bottomNavStyle}>
-              <button onClick={() => setActiveTab('list')} style={activeTab === 'list' ? navBtnActive : navBtn}><List size={20} /><span>一覧</span></button>
-              <button onClick={() => setActiveTab('add')} style={activeTab === 'add' ? navBtnActive : navBtn}><PlusSquare size={20} /><span>新規</span></button>
-              <button onClick={() => setActiveTab('config')} style={activeTab === 'config' ? navBtnActive : navBtn}><Settings size={20} /><span>設定</span></button>
+        {/* 統計エリア（共通） */}
+        <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', overflowX: 'auto', paddingBottom: '5px' }}>
+          <div style={statsCard}>全店舗: {stats.total}</div>
+          <div style={{ ...statsCard, color: '#4f46e5' }}>全施設: {facilities.length}</div>
+          <div style={{ ...statsCard, color: '#10b981' }}>公開中: {stats.active}</div>
+        </div>
+
+        {/* --- 🆕 メインコンテンツエリア --- */}
+        <div>
+          {/* A. 店舗管理タブ（一覧と新規登録をグリッドで表示） */}
+          {(activeTab === 'list' || activeTab === 'add') && (
+            <div style={isMobile ? { width: '100%' } : { display: 'grid', gridTemplateColumns: '350px 1fr', gap: '25px', alignItems: 'start' }}>
+               <div style={{ display: 'flex', flexDirection: 'column', gap: '25px' }}>
+                 {renderAddShop()}
+               </div>
+               <div style={{ minWidth: 0 }}>
+                 {renderShopList()}
+               </div>
             </div>
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: '350px 1fr', gap: '25px', alignItems: 'start' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '25px' }}>
-              {renderAddShop()}
-              {renderPortalSettings()}
-            </div>
-            <div style={{ minWidth: 0 }}>
-              {renderShopList()}
-            </div>
+          )}
+
+          {/* B. 🆕 施設Hub管理タブ */}
+          {activeTab === 'facility' && renderFacilityManagement()}
+
+          {/* C. 全体設定タブ */}
+          {activeTab === 'config' && renderPortalSettings()}
+        </div>
+
+        {/* スマホ用ボトムナビ（予備として維持） */}
+        {isMobile && (
+          <div style={bottomNavStyle}>
+            <button onClick={() => setActiveTab('list')} style={activeTab === 'list' ? navBtnActive : navBtn}><List size={20} /><span>一覧</span></button>
+            <button onClick={() => setActiveTab('facility')} style={activeTab === 'facility' ? navBtnActive : navBtn}><Building2 size={20} /><span>Hub</span></button>
+            <button onClick={() => setActiveTab('config')} style={activeTab === 'config' ? navBtnActive : navBtn}><Settings size={20} /><span>設定</span></button>
           </div>
         )}
       </div>

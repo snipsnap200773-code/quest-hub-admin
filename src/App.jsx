@@ -42,6 +42,10 @@ import FacilityManagement from './pages/admin/FacilityManagement';
 import FacilityLogin from './pages/FacilityLogin';
 import FacilityPortal from './pages/FacilityPortal';
 
+// 🆕 施設又は業者検索・申請画面をインポート
+import FacilitySearch from './components/FacilitySearch';
+import ShopSearch from './components/ShopSearch';
+
 // 🔝 自動スクロール装置
 import ScrollToTop from './components/ScrollToTop';
 
@@ -88,6 +92,10 @@ function App() {
         <Route path="/admin/:shopId/settings/line" element={<LineSettings />} />
         <Route path="/admin/:shopId/settings/general" element={<GeneralSettings />} />
         <Route path="/admin/:shopId/settings/form" element={<FormCustomizer />} />
+
+        {/* 🆕 施設又は業者を探す・提携申請を送る画面へのルートを追加 */}
+        <Route path="/admin/:shopId/facility-search" element={<FacilitySearch />} />
+        <Route path="/facility-portal/:facilityId/find-shops" element={<ShopSearch />} />
 
         {/* 召喚された案内人（ガイド）用 */}
         <Route path="/admin/:shopId/settings/basic-guide" element={<BasicSettingsGuide />} />

@@ -12,31 +12,57 @@ import {
 const AdminDashboard = () => {
   const { shopId } = useParams();
   const navigate = useNavigate();
-  const [shopData, setShopData] = useState(null);
   
-  // 🆕 ログイン状態の初期値を sessionStorage から取得するように修正
-  const [isAuthorized, setIsAuthorized] = useState(
-    sessionStorage.getItem(`auth_${shopId}`) === 'true'
-  );
-  const [inputPass, setInputPass] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
+  // 🆕 必須：これらが定義されていないとエラーになります
+  const [shopData, setShopData] = useState(null);    // お店の基本情報
+  const [isLoading, setIsLoading] = useState(true);  // ロード中フラグ
+  const [isAuthorized, setIsAuthorized] = useState(false); // 認証フラグ
+  const [inputPass, setInputPass] = useState('');    // 入力パスワード
+  const [pendingCount, setPendingCount] = useState(0); // 承認待ち件数
+
+  // 🆕 お店の情報と承認待ち件数を取得するメイン処理
+  const fetchData = async () => {
+    setIsLoading(true);
+    try {
+      // 1. お店の基本プロファイルを取得
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', shopId)
+        .single();
+      
+      if (profile) setShopData(profile);
+
+      // 2. 施設から届いている「承認待ち」の件数を数える
+      const { count } = await supabase
+        .from('shop_facility_connections')
+        .select('*', { count: 'exact', head: true })
+        .eq('shop_id', shopId)
+        .eq('status', 'pending')
+        .eq('created_by_type', 'facility');
+
+      setPendingCount(count || 0);
+
+      // 3. ログイン認証済みかチェック (sessionStorage)
+      const auth = sessionStorage.getItem(`auth_${shopId}`);
+      if (auth === 'true') setIsAuthorized(true);
+
+    } catch (err) {
+      console.error("データ取得エラー:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchInitialData = async () => {
-      if (!shopId) return;
-      setIsLoading(true);
-      const { data } = await supabase.from('profiles').select('*').eq('id', shopId).single();
-      if (data) setShopData(data);
-      setIsLoading(false);
-    };
-    fetchInitialData();
+    fetchData();
   }, [shopId]);
 
-  // 🆕 判定処理：成功時に sessionStorage へ保存するロジックを追加
+  // 🆕 ログイン処理
   const handleLogin = (e) => {
     e.preventDefault();
     if (inputPass === shopData?.admin_password) {
-      sessionStorage.setItem(`auth_${shopId}`, 'true'); // ログイン状態をブラウザに記憶
+      sessionStorage.setItem(`auth_${shopId}`, 'true');
       setIsAuthorized(true);
     } else {
       alert('パスワードが違います');
@@ -138,7 +164,6 @@ const AdminDashboard = () => {
         />
 
         {/* 🆕 施設管理カード（条件付き表示） */}
-        {/* 業種が「訪問」を含む、または小カテゴリが「施設訪問」などの場合に表示 */}
         {(shopData?.business_type?.includes('訪問') || shopData?.sub_business_type === '施設訪問') && (
           <NavCard 
             title="施設管理" 
@@ -148,6 +173,7 @@ const AdminDashboard = () => {
             to={`/admin/${shopId}/facilities`}
             cardStyle={cardStyle} 
             iconBoxStyle={iconBoxStyle} 
+            pendingCount={pendingCount} // ✅ これを追加！
           />
         )}
 
@@ -221,11 +247,11 @@ const AdminDashboard = () => {
 };
 
 // --- サブコンポーネント：NavCard ---
-const NavCard = ({ to, title, desc, icon, color, cardStyle, iconBoxStyle }) => {
+const NavCard = ({ to, title, desc, icon, color, cardStyle, iconBoxStyle, pendingCount }) => { // ✅ pendingCount を追加
   return (
     <Link 
       to={to}
-      style={cardStyle}
+      style={{ ...cardStyle, position: 'relative' }} // ✅ 念のため position: 'relative' を保証
       onMouseOver={(e) => {
         e.currentTarget.style.transform = 'translateY(-8px)';
         e.currentTarget.style.borderColor = color;
@@ -237,6 +263,30 @@ const NavCard = ({ to, title, desc, icon, color, cardStyle, iconBoxStyle }) => {
         e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.05)';
       }}
     >
+      {/* 🆕 通知バッジ：件数が1以上あるときだけ右上に表示 */}
+      {pendingCount > 0 && (
+        <div style={{
+          position: 'absolute',
+          top: '15px',
+          right: '15px',
+          background: '#ef4444',
+          color: '#fff',
+          borderRadius: '50%',
+          width: '24px',
+          height: '24px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '0.75rem',
+          fontWeight: 'bold',
+          boxShadow: '0 2px 8px rgba(239, 68, 68, 0.4)',
+          zIndex: 10,
+          border: '2px solid #fff'
+        }}>
+          {pendingCount}
+        </div>
+      )}
+
       <div style={iconBoxStyle(color)}>{icon}</div>
       <h3 style={{ margin: '0 0 8px', color: '#1e293b', fontSize: '1.2rem', fontWeight: 'bold' }}>{title}</h3>
       <p style={{ margin: '0', color: '#64748b', fontSize: '0.85rem', lineHeight: '1.5' }}>{desc}</p>

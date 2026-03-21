@@ -3,7 +3,8 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../../supabaseClient'; 
 import { 
   Building2, Plus, MapPin, Calendar, Users, 
-  ChevronRight, X, Save, User, ArrowLeft, Phone, Mail, Trash2, Edit3, Clock, Copy, Link2
+  ChevronRight, X, Save, User, ArrowLeft, Phone, Mail, Trash2, Edit3, Clock, Copy, Link2,
+  Search, AlertCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -30,7 +31,9 @@ const FacilityManagement = () => {
 
   // フォームState（既存システムをベースに tenant_id を追加）
   const [formData, setFormData] = useState({ 
-    name: '', login_id: '', pw: '', email: '', address: '', tel: '', regular_rules: [], tenant_id: shopId 
+    facility_name: '', 
+    regular_rules: [], 
+    tenant_id: shopId 
   });
 
   const [selDay, setSelDay] = useState(1);
@@ -44,7 +47,7 @@ const FacilityManagement = () => {
   const fetchFacilities = async () => {
     setLoading(true);
     
-    // 🆕 shop_facility_connections（提携）から、紐付く facility_users（施設マスター）を取得
+    // 🆕 提携ステータスが 'active'（承認済み）のものだけを取得するように修正
     const { data, error } = await supabase
       .from('shop_facility_connections')
       .select(`
@@ -52,15 +55,16 @@ const FacilityManagement = () => {
         facility_users (*)
       `)
       .eq('shop_id', shopId)
+      .in('status', ['active', 'pending']) // 🆕 active か pending なら取得する
       .order('created_at', { ascending: true });
     
     if (!error && data) {
-      // 扱いやすいように「施設情報 ＋ 提携ルール」の形に整理する
       const formatted = data.map(item => ({
-        ...item.facility_users,      // 施設マスター（名前、住所など）
-        id: item.facility_users.id,  // 施設ID
-        regular_rules: item.regular_rules || [], // この店舗との定期ルール
-        connection_id: item.id       // 提携自体のID
+        ...item.facility_users,
+        id: item.facility_users.id,
+        status: item.status, // 🆕 ステータス（active or pending）を保持
+        regular_rules: item.regular_rules || [],
+        connection_id: item.id
       }));
       setFacilities(formatted);
     } else if (error) {
@@ -160,21 +164,73 @@ const handleSave = async (e) => {
   }
 };
 
-  const handleDelete = async (f) => {
-    if (!window.confirm(`施設名: ${f.name} を削除してもよろしいですか？`)) return;
-    const { error } = await supabase.from('facilities').delete().eq('id', f.id);
-    if (!error) fetchFacilities();
+  // 🆕 1. 施設からの提携申請を「承認」する
+  const handleApprove = async (connectionId) => {
+    const { error } = await supabase
+      .from('shop_facility_connections')
+      .update({ status: 'active' })
+      .eq('id', connectionId);
+
+    if (!error) {
+      alert('提携を承認しました！');
+      fetchFacilities();
+    } else {
+      alert('承認エラー: ' + error.message);
+    }
   };
+
+  // 🆕 2. 施設からの提携申請を「拒否（削除）」する
+  const handleReject = async (connectionId) => {
+    if (!window.confirm('この申請を拒否して削除しますか？')) return;
+    
+    const { error } = await supabase
+      .from('shop_facility_connections')
+      .delete()
+      .eq('id', connectionId);
+
+    if (!error) {
+      alert('リクエストを削除しました。');
+      fetchFacilities();
+    }
+  };
+
+  const handleDelete = async (f) => {
+    const confirmName = window.prompt(`施設「${f.facility_name}」との提携を解消しますか？\n実行する場合は、確認のため施設名を正確に入力してください：`);
+    
+    if (confirmName === f.facility_name) {
+      const { error } = await supabase
+        .from('shop_facility_connections')
+        .delete()
+        .eq('facility_user_id', f.id)
+        .eq('shop_id', shopId);
+
+      if (!error) {
+        alert('提携を解消しました。');
+        fetchFacilities();
+      }
+    } else if (confirmName !== null) {
+      alert('施設名が一致しません。処理を中断しました。');
+    }
+  };
+
+  // 🆕 3. 表示用にリストを「承認待ち」と「提携済み」に分ける
+  const pendingFacilities = facilities.filter(f => f.status === 'pending');
+  const activeFacilities = facilities.filter(f => f.status === 'active');
 
   const openEdit = (f) => {
     setEditingId(f.id);
-    setFormData({ ...f, tenant_id: shopId });
+    // 🆕 店舗が触る必要のないIDやPWなどはStateに入れない
+    setFormData({ 
+      facility_name: f.facility_name || '', 
+      regular_rules: f.regular_rules || [], 
+      tenant_id: shopId 
+    });
     setIsModalOpen(true);
   };
 
   const resetForm = () => {
     setEditingId(null);
-    setFormData({ name: '', pw: '', email: '', address: '', tel: '', regular_rules: [], tenant_id: shopId });
+    setFormData({ facility_name: '', regular_rules: [], tenant_id: shopId });
     setSelMonthType(0);
   };
 
@@ -185,85 +241,101 @@ const handleSave = async (e) => {
           <Link to={`/admin/${shopId}/dashboard`} style={backBtnStyle}><ArrowLeft size={20} /></Link>
           <div>
             <h1 style={titleStyle}>全施設名簿マスター</h1>
-            <p style={subtitleStyle}>契約施設の管理・定期ルール設定</p>
+            <p style={subtitleStyle}>提携施設の管理・定期ルール設定</p>
           </div>
         </div>
-        <button onClick={() => { resetForm(); setIsModalOpen(true); }} style={addBtnStyle}>
-          <Plus size={20} /> 新規施設登録
+        {/* 🆕 自力で作るのではなく、プラットフォームから探しに行くボタンに変更 */}
+        <button 
+          onClick={() => navigate(`/admin/${shopId}/facility-search`)} 
+          style={{...addBtnStyle, background: '#4f46e5', gap: '8px'}}
+        >
+          <Search size={18} /> 新しい提携先を探す
         </button>
       </header>
 
       {loading ? <p style={{textAlign:'center', padding: '40px', color: '#94a3b8'}}>読込中...</p> : (
-        <div style={gridStyle}>
-          {facilities.map((f) => (
-            <motion.div key={f.id} whileHover={{ scale: 1.01 }} style={cardStyle}>
-              <div style={cardHeaderStyle}>
-                <div style={{ flex: 1 }}>
-                  <h2 style={facilityNameStyle}>{f.name}</h2>
-                  <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
-                    <span style={idBadgeStyle}>ID: {f.id}</span>
-                    <span style={pwBadgeStyle}>PW: {f.pw}</span>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: '10px' }}>
-                  <button onClick={() => openEdit(f)} style={iconBtnStyle}><Edit3 size={18} /></button>
-                  <button onClick={() => handleDelete(f)} style={{...iconBtnStyle, color: '#ef4444'}}><Trash2 size={18} /></button>
-                </div>
-              </div>
-
-              <div style={ruleSectionStyle}>
-                <div style={sectionLabelStyle}><Clock size={14} /> 定期キープ：</div>
-                <div style={ruleBadgeContainer}>
-                  {f.regular_rules?.map((r, i) => (
-                    <span key={i} style={ruleBadgeStyle}>
-                      {r.monthType === 1 ? '奇数月 ' : r.monthType === 2 ? '偶数月 ' : ''}
-                      {WEEKS.find(w => w.value === r.week)?.label}{DAYS.find(d=>d.value===r.day)?.label}曜
-                    </span>
-                  ))}
-                  {(!f.regular_rules || f.regular_rules.length === 0) && <span style={{fontSize:'12px', color:'#cbd5e1'}}>設定なし</span>}
-                </div>
-              </div>
-              
-              <div style={infoGridStyle}>
-                <div style={infoItemStyle}><Mail size={14} /> {f.email || "未登録"}</div>
-                <div style={infoItemStyle}><MapPin size={14} /> {f.address || "未登録"}</div>
-                <div style={infoItemStyle}><Phone size={14} /> {f.tel || "未登録"}</div>
-              </div>
-
-              <div style={inviteBoxStyle}>
-                <div style={inviteLabelStyle}>施設担当者用ログインURL</div>
-                <div style={inviteInputGroupStyle}>
-                  <input 
-                    readOnly 
-                    value={`${window.location.origin}/facility-login/${f.id}`} 
-                    style={inviteInputStyle} 
-                  />
-                  <button 
-                    type="button"
-                    // 🆕 招待メッセージのコピー部分（修正後）
-onClick={() => {
-  const url = `${window.location.origin}/facility-login/${f.id}`;
-  navigator.clipboard.writeText(
-    `【${f.facility_name}様 専用】\nQUEST HUB 施設ポータルへのログイン情報です。\n\n` +
-    `URL: ${url}\n` +
-    `ログインID: ${f.login_id}\n` +
-    `パスワード: ${f.password}\n\n` +
-    `こちらから名簿の入力と訪問依頼が可能です。`
-  );
-  alert('招待メッセージをコピーしました！');
-}}
-                    style={copyBtnStyle}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '40px' }}>
+          
+          {/* --- A: 届いている提携申請（pending）セクション --- */}
+          {pendingFacilities.length > 0 && (
+            <section>
+              <h3 style={{ fontSize: '0.9rem', fontWeight: 'bold', color: '#f97316', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <AlertCircle size={18} /> 届いている提携申請（承認が必要です）
+              </h3>
+              <div style={gridStyle}>
+                {pendingFacilities.map((f) => (
+                  <motion.div 
+                    key={f.id} 
+                    animate={{ boxShadow: ["0px 0px 0px rgba(249,115,22,0)", "0px 0px 15px rgba(249,115,22,0.4)", "0px 0px 0px rgba(249,115,22,0)"] }}
+                    transition={{ duration: 2, repeat: Infinity }}
+                    style={{ ...cardStyle, border: '2px solid #fdba74', background: '#fffaf5' }}
                   >
-                    <Copy size={14} /> コピー
-                  </button>
-                </div>
+                    <div style={cardHeaderStyle}>
+                      <div style={{ flex: 1 }}>
+                        <h2 style={facilityNameStyle}>{f.facility_name}</h2>
+                        <div style={{ fontSize: '0.7rem', color: '#f97316', fontWeight: 'bold', marginTop: '4px' }}>施設側からアタックが届いています</div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '10px' }}>
+                        <button onClick={() => handleApprove(f.connection_id)} style={{ ...addBtnStyle, background: '#10b981', padding: '8px 16px', fontSize: '0.85rem' }}>承認する</button>
+                        <button onClick={() => handleReject(f.connection_id)} style={{ ...iconBtnStyle, color: '#ef4444' }}><Trash2 size={16} /></button>
+                      </div>
+                    </div>
+                    <div style={infoGridStyle}>
+                      <div style={infoItemStyle}><Phone size={14} /> {f.tel || "連絡先未登録"}</div>
+                      <div style={infoItemStyle}><Mail size={14} /> {f.email || "メール未登録"}</div>
+                    </div>
+                  </motion.div>
+                ))}
               </div>
+            </section>
+          )}
 
-              <Link to={`/admin/${shopId}/facilities/${f.id}/residents`} style={linkBtnStyle}>
-                入居者名簿を確認 <ChevronRight size={18} />
-              </Link>
-            </motion.div>
-          ))}
+          {/* --- B: 提携済み施設名簿（active）セクション --- */}
+          <section>
+            <h3 style={{ fontSize: '0.9rem', fontWeight: 'bold', color: '#64748b', marginBottom: '15px' }}>提携済み施設一覧</h3>
+            <div style={gridStyle}>
+              {activeFacilities.map((f) => (
+                <motion.div key={f.id} whileHover={{ scale: 1.01 }} style={cardStyle}>
+                  <div style={cardHeaderStyle}>
+                    <div style={{ flex: 1 }}>
+                      <h2 style={facilityNameStyle}>{f.facility_name}</h2>
+                    </div>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <button onClick={() => openEdit(f)} style={iconBtnStyle}><Edit3 size={18} /></button>
+                      <button onClick={() => handleDelete(f)} style={{...iconBtnStyle, color: '#ef4444'}}><Trash2 size={18} /></button>
+                    </div>
+                  </div>
+
+                  <div style={ruleSectionStyle}>
+                    <div style={sectionLabelStyle}><Clock size={14} /> 定期キープ：</div>
+                    <div style={ruleBadgeContainer}>
+                      {f.regular_rules?.map((r, i) => (
+                        <span key={i} style={ruleBadgeStyle}>
+                          {r.monthType === 1 ? '奇数月 ' : r.monthType === 2 ? '偶数月 ' : ''}
+                          {WEEKS.find(w => w.value === r.week)?.label}{DAYS.find(d=>d.value===r.day)?.label}曜
+                        </span>
+                      ))}
+                      {(!f.regular_rules || f.regular_rules.length === 0) && <span style={{fontSize:'12px', color:'#cbd5e1'}}>設定なし</span>}
+                    </div>
+                  </div>
+                  
+                  <div style={infoGridStyle}>
+                    <div style={infoItemStyle}><Mail size={14} /> {f.email || "未登録"}</div>
+                    <div style={infoItemStyle}><MapPin size={14} /> {f.address || "未登録"}</div>
+                    <div style={infoItemStyle}><Phone size={14} /> {f.tel || "未登録"}</div>
+                  </div>
+
+                  <Link to={`/admin/${shopId}/facilities/${f.id}/residents`} style={linkBtnStyle}>
+                    入居者名簿を確認 <ChevronRight size={18} />
+                  </Link>
+                </motion.div>
+              ))}
+            </div>
+            {activeFacilities.length === 0 && (
+              <div style={{ ...emptyCardStyle, padding: '60px' }}>提携済みの施設はありません</div>
+            )}
+          </section>
+
         </div>
       )}
 
@@ -279,32 +351,13 @@ onClick={() => {
               onClick={(e) => e.stopPropagation()}
             >
               <div style={modalHeaderStyle}>
-                <h3 style={{margin:0, color:'#1e3a8a'}}>{editingId ? "施設情報の編集" : "新規施設登録"}</h3>
+                <h3 style={{margin:0, color:'#1e3a8a'}}>{editingId ? "定期訪問日の編集" : "新規施設登録"}</h3>
                 <button onClick={() => setIsModalOpen(false)} style={{border:'none', background:'none'}}><X /></button>
               </div>
 
               <form onSubmit={handleSave} style={formContainerStyle}>
                 <div style={scrollAreaStyle}>
                   <div style={formGridStyle}>
-                    <label style={labelStyle}>施設名
-                      <input style={inputStyle} value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} required placeholder="例: マリアの丘" />
-                    </label>
-                    {/* 🆕 ログインIDの入力欄を追加 */}
-                    <label style={labelStyle}>施設ログインID（半角英数）
-                      <input style={inputStyle} value={formData.login_id} onChange={e => setFormData({...formData, login_id: e.target.value})} required placeholder="例: maria_oka" />
-                    </label>
-                    <label style={labelStyle}>パスワード
-                      <input style={inputStyle} value={formData.pw} onChange={e => setFormData({...formData, pw: e.target.value})} required />
-                    </label>
-                    <label style={labelStyle}>通知用メールアドレス
-                      <input style={inputStyle} type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} placeholder="example@gmail.com" />
-                    </label>
-                    <label style={labelStyle}>住所
-                      <input style={inputStyle} value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} placeholder="東京都町田市..." />
-                    </label>
-                    <label style={labelStyle}>電話番号
-                      <input style={inputStyle} value={formData.tel} onChange={e => setFormData({...formData, tel: e.target.value})} placeholder="03-1234-5678" />
-                    </label>
 
                     {/* 定期ルール設定（既存ロジックを維持） */}
                     <div style={ruleConfigBoxStyle}>
@@ -414,5 +467,27 @@ const inviteLabelStyle = { fontSize: '0.7rem', fontWeight: 'bold', color: '#0369
 const inviteInputGroupStyle = { display: 'flex', gap: '8px' };
 const inviteInputStyle = { flex: 1, fontSize: '0.7rem', padding: '8px', border: '1px solid #cbd5e1', borderRadius: '8px', background: '#fff', color: '#64748b', outline: 'none' };
 const copyBtnStyle = { display: 'flex', alignItems: 'center', gap: '5px', background: '#0369a1', color: '#fff', border: 'none', padding: '8px 12px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 'bold', cursor: 'pointer' };
+// 🆕 追加：リストが空の時のスタイル
+const emptyCardStyle = { 
+  gridColumn: '1/-1', 
+  textAlign: 'center', 
+  padding: '60px', 
+  background: '#fff', 
+  borderRadius: '24px', 
+  color: '#cbd5e1', 
+  fontSize: '0.9rem', 
+  border: '2px dashed #f1f5f9' 
+};
+
+// 🆕 追加：セクションの見出しスタイル
+const sectionTitleStyle = { 
+  fontSize: '0.9rem', 
+  fontWeight: 'bold', 
+  color: '#64748b', 
+  marginBottom: '15px', 
+  display: 'flex', 
+  alignItems: 'center', 
+  gap: '8px' 
+};
 
 export default FacilityManagement;

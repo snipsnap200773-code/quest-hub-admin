@@ -227,7 +227,62 @@ const otpRes = await fetch('https://api.resend.com/emails', {
     headers: corsHeaders 
   });
 }
-// 🆕 追記ここまで
+
+// ==========================================
+// 🆕 【ここを新しく追加！】パターンG：提携リクエスト通知
+// ==========================================
+if (type === 'partnership_request') {
+  const { 
+    senderName,    // 送信元の名前（施設名 or 店名）
+    receiverEmail, // 受信先のメールアドレス
+    receiverId,    // 受信先のID
+    receiverType,  // 'shop' or 'facility'
+    targetUrl      // 承認画面へのリンク
+  } = payload;
+
+  const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? "";
+  const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? "";
+  const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
+  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+  // 1. 受信側の設定をDBから直接取得（独立したフラグ：email_notifications_enabled）
+  const table = receiverType === 'shop' ? 'profiles' : 'facility_users';
+  const { data: receiverData } = await supabaseAdmin
+    .from(table)
+    .select('email_notifications_enabled, business_name, facility_name')
+    .eq('id', receiverId)
+    .single();
+
+  // ✅ 判定：受信側が「メール通知OFF」なら送信をスキップ
+  if (receiverData?.email_notifications_enabled === false) {
+    return new Response(JSON.stringify({ success: true, skipped: true }), { headers: corsHeaders });
+  }
+
+  const receiverName = receiverData?.business_name || receiverData?.facility_name || "関係者";
+
+  const subject = `【QUEST HUB】新しい提携申請（${senderName} 様より）`;
+  const html = `
+    <div style="font-family: sans-serif; color: #333; line-height: 1.6; max-width: 550px; margin: 0 auto; border: 1px solid #e2e8f0; padding: 25px; border-radius: 12px;">
+      <h2 style="color: #4f46e5; margin-top: 0;">🤝 新しい提携申請</h2>
+      <p><strong>${receiverName} 様</strong></p>
+      <p><strong>${senderName} 様</strong> より、新しく提携のリクエストが届きました。</p>
+      <div style="background: #f8fafc; padding: 20px; border-radius: 10px; border: 1px solid #e2e8f0; margin: 20px 0; text-align: center;">
+        <p style="margin-bottom: 15px; font-size: 0.9rem; color: #64748b;">内容を確認して承認・拒否を選択してください</p>
+        <a href="${targetUrl}" style="display: inline-block; background: #4f46e5; color: #fff; padding: 12px 25px; border-radius: 8px; text-decoration: none; font-weight: bold;">申請を確認する</a>
+      </div>
+      <p style="font-size: 0.8rem; color: #94a3b8; border-top: 1px solid #eee; padding-top: 15px;">
+        ※通知設定は管理画面の「設定」より変更可能です。
+      </p>
+    </div>`;
+
+  const mailRes = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_API_KEY}` },
+    body: JSON.stringify({ from: 'QUEST HUB 通知センター <infec@snipsnap.biz>', to: [receiverEmail], subject, html })
+  });
+
+  return new Response(JSON.stringify({ success: mailRes.ok }), { status: 200, headers: corsHeaders });
+}
 
     // ==========================================
     // 🚀 パターンA：店主様への歓迎メール ＆ 三土手さんへの通知送信 (本家ロジック完全維持)

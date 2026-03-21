@@ -6,7 +6,11 @@ import {
   Save, LogOut, ChevronRight, X, Trash2, Check,
   Edit3,
   Calendar, AlertCircle,
-  Store, CalendarCheck // 🆕 この2つを追加
+  Store, CalendarCheck,
+  Settings, ShieldAlert,
+  User, Mail, 
+  Phone,
+  Send
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -18,6 +22,10 @@ const FacilityPortal = () => {
   const [residents, setResidents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+
+  // 🆕 追加：タブ管理と更新用State
+  const [activeTab, setActiveTab] = useState('residents'); // 'residents' or 'settings'
+  const [isUpdating, setIsUpdating] = useState(false);
   
   // モーダル・フォーム管理
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -56,11 +64,17 @@ const FacilityPortal = () => {
 
     // 2. 提携している「サービス（店舗）」の一覧を取得
     const { data: shopData } = await supabase
-      .from('shop_facility_connections')
-      .select(`*, profiles (id, business_name, business_type, theme_color)`)
-      .eq('facility_user_id', facilityId)
-      .eq('status', 'active');
-    setConnectedShops(shopData || []);
+  .from('shop_facility_connections')
+  .select(`
+    *, 
+    profiles (
+      id, business_name, business_type, theme_color, phone, email_contact
+    )
+  `)
+  .eq('facility_user_id', facilityId)
+  .in('status', ['active', 'pending']); // ✅ 両方取得する！
+
+setConnectedShops(shopData || []);
 
     // --- 🆕 追加：進行中の訪問依頼（未完了の最新1件）をDBから取得 ---
     const { data: reqData } = await supabase
@@ -201,6 +215,84 @@ const FacilityPortal = () => {
   };
 
   // --- 追加ここまで ---
+  // 🆕 追加：受付ステータス（業種別スイッチ）を更新する
+  const updateAcceptStatus = async (column, value) => {
+    setIsUpdating(true);
+    const { error } = await supabase
+      .from('facility_users')
+      .update({ [column]: value })
+      .eq('id', facilityId);
+
+    if (!error) {
+      setFacility(prev => ({ ...prev, [column]: value }));
+    } else {
+      alert('設定の更新に失敗しました');
+    }
+    setIsUpdating(false);
+  };
+
+  // 🆕 提携リクエスト（Connections）を承認・拒否する関数
+  const handleConnectionStatus = async (connectionId, newStatus) => {
+    setIsUpdating(true);
+    
+    if (newStatus === 'rejected') {
+      // 🆕 拒否の場合は、データを残さず削除する
+      const { error } = await supabase
+        .from('shop_facility_connections')
+        .delete()
+        .eq('id', connectionId);
+
+      if (!error) {
+        alert('リクエストを拒否（削除）しました。');
+        fetchData();
+      } else {
+        alert('エラーが発生しました: ' + error.message);
+      }
+    } else {
+      // 承認の場合は、今まで通り active に更新
+      const { error } = await supabase
+        .from('shop_facility_connections')
+        .update({ status: newStatus })
+        .eq('id', connectionId);
+
+      if (!error) {
+        alert('提携を承認しました！');
+        fetchData();
+      } else {
+        alert('エラーが発生しました: ' + error.message);
+      }
+    }
+    setIsUpdating(false);
+  };
+
+  // 🆕 提携解消（契約解除）の処理を追加
+  const handleDisconnect = async (connection) => {
+    const shopName = connection.profiles?.business_name;
+    
+    // 🆕 名前を入力させ、不一致なら実行しない
+    const inputName = window.prompt(
+      `「${shopName}」との提携を解消しますか？\n解消すると名簿の共有と予約機能が停止されます。\n\n実行する場合は、確認のため店舗名を正確に入力してください：`
+    );
+    
+    if (inputName !== shopName) {
+      if (inputName !== null) alert("店舗名が一致しません。処理を中断しました。");
+      return;
+    }
+
+    const { error } = await supabase
+      .from('shop_facility_connections')
+      .delete()
+      .eq('id', connection.id);
+
+    if (!error) {
+      alert(`${shopName} との提携を解消しました。`);
+      fetchData(); // データを再取得して画面を更新
+    } else {
+      alert('エラーが発生しました: ' + error.message);
+    }
+  };
+
+  // --- 追加ここまで ---
 
   const resetForm = () => {
     setEditingId(null);
@@ -213,9 +305,142 @@ const FacilityPortal = () => {
 
   if (loading) return <div style={centerStyle}>読み込み中...</div>;
 
+// 🆕 追加：設定画面のレンダリング
+  const renderSettings = () => {
+    const pendingRequests = connectedShops
+      .filter(con => con.status === 'pending')
+      .reduce((acc, current) => {
+        const isDuplicate = acc.find(item => item.shop_id === current.shop_id);
+        if (!isDuplicate) return acc.concat([current]);
+        return acc;
+      }, []);
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '25px', paddingBottom: '100px' }}>
+        
+        {pendingRequests.length > 0 && (
+          <div style={{ ...panelStyle, border: '2px solid #f59e0b', background: '#fffbeb' }}>
+            {/* 🆕 タイトルを汎用的なものに変更 */}
+            <h3 style={{ ...panelTitle, color: '#d97706' }}><ShieldAlert size={18} /> 提携リクエストの状況</h3>
+            <p style={{ fontSize: '0.75rem', color: '#b45309', marginBottom: '15px' }}>
+              店舗との提携リクエストの状態を表示しています。
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {pendingRequests.map(req => (
+                <div key={req.id} style={requestCardStyle}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 'bold', fontSize: '0.95rem', color: '#1e293b' }}>{req.profiles?.business_name}</div>
+                    <div style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: '4px' }}>業種: {req.profiles?.business_type}</div>
+                    
+                    <div style={{ display: 'flex', gap: '10px', fontSize: '0.65rem', color: '#94a3b8' }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Phone size={10} /> {req.profiles?.phone || '-'}</span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Mail size={10} /> {req.profiles?.email_contact || '-'}</span>
+                    </div>
+                  </div>
+
+                  {/* 🆕 ここで出し分け！ */}
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    {req.created_by_type === 'shop' ? (
+                      // A：店舗から来た場合 ➔ 承認/拒否ボタンを出す
+                      <>
+                        <button 
+                          onClick={() => handleConnectionStatus(req.id, 'active')} 
+                          style={approveBtnStyle}
+                          disabled={isUpdating}
+                        >
+                          承認
+                        </button>
+                        <button 
+                          onClick={() => handleConnectionStatus(req.id, 'rejected')} 
+                          style={rejectBtnStyle}
+                          disabled={isUpdating}
+                        >
+                          拒否
+                        </button>
+                      </>
+                    ) : (
+                      // B：自分（施設）から送った場合 ➔ 「リクエスト中」の文字を出す
+                      <div style={{ 
+                        color: '#f97316', 
+                        fontWeight: 'bold', 
+                        fontSize: '0.85rem', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '5px',
+                        padding: '8px 12px',
+                        background: '#fff7ed',
+                        borderRadius: '10px',
+                        border: '1px solid #fdba74'
+                      }}>
+                        <Send size={14} /> 提携リクエスト中
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ❌ ここにあった「2. 届いている提携申請（既存の...）」というブロックはまるごと消しました */}
+
+        {/* B: 業種別の受付スイッチ設定（ここはそのまま残す） */}
+        <div style={panelStyle}>
+          <h3 style={panelTitle}><ShieldAlert size={18} /> 外部業者からの提携申請制限</h3>
+          <p style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '20px' }}>
+            提携していない店舗からの新規申請を、業種ごとに制限できます。
+          </p>          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+            {[
+              { label: '美容・理容（カット・顔剃り等）', col: 'accept_salon' },
+              { label: '歯科・口腔ケア（定期検診等）', col: 'accept_dentist' },
+              { label: 'マッサージ・リハビリ', col: 'accept_massage' }
+            ].map(item => (
+              <div key={item.col} style={settingRowStyle}>
+                <span style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>{item.label}</span>
+                <label style={switchStyle}>
+                  <input 
+                    type="checkbox" 
+                    style={{ opacity: 0, width: 0, height: 0, position: 'absolute' }}
+                    checked={facility?.[item.col] ?? true} 
+                    onChange={(e) => updateAcceptStatus(item.col, e.target.checked)}
+                    disabled={isUpdating}
+                  />
+                  <span style={{
+                    ...sliderStyle,
+                    backgroundColor: (facility?.[item.col] ?? true) ? '#4f46e5' : '#cbd5e1',
+                  }}>
+                    <div style={{
+                      width: '18px', height: '18px', backgroundColor: 'white', borderRadius: '50%',
+                      position: 'absolute', top: '3px',
+                      left: (facility?.[item.col] ?? true) ? '24px' : '4px',
+                      transition: '0.3s'
+                    }} />
+                  </span>
+                </label>
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: '20px', padding: '12px', background: '#fffbeb', borderRadius: '10px', border: '1px solid #fef3c7', fontSize: '0.75rem', color: '#92400e' }}>
+            ※OFFにすると、その業種の店舗側の「施設検索」にあなたの施設が表示されなくなります。
+          </div>
+        </div>
+
+        {/* C: 施設情報表示（既存） */}
+        <div style={panelStyle}>
+          <h3 style={panelTitle}><Building2 size={18} /> 施設情報</h3>
+          <p style={{ fontSize: '0.85rem' }}>施設名: <strong>{facility?.facility_name}</strong></p>
+          <p style={{ fontSize: '0.85rem' }}>ログインID: <code>{facility?.login_id}</code></p>
+          <p style={{ fontSize: '0.7rem', color: '#94a3b8' }}>パスワードの変更は運営（三土手）までお問い合わせください。</p>
+        </div>
+      </div>
+    );
+  };
+
+  // --- 修正後：タブ切り替えロジックを導入 ---
   return (
     <div style={containerStyle}>
-      {/* 施設ポータルヘッダー */}
+      {/* 施設ポータルヘッダー：共通 */}
       <header style={headerStyle}>
         <div>
           <div style={facilityLabelStyle}><Building2 size={14} /> QUEST HUB 施設ポータル</div>
@@ -223,7 +448,7 @@ const FacilityPortal = () => {
         </div>
         <button 
           onClick={() => { 
-            sessionStorage.clear(); // 🆕 セッションを全クリア
+            sessionStorage.clear();
             navigate(`/facility-login/${facilityId}`); 
           }} 
           style={logoutBtnStyle}
@@ -232,182 +457,202 @@ const FacilityPortal = () => {
         </button>
       </header>
 
-      {/* 🆕 提携サービス（SnipSnapなど）セクション */}
-      <section style={sectionAreaStyle}>
-        <h2 style={sectionTitleStyle}><Store size={18} /> 提携サービス（業者）</h2>
-        <div style={shopGridStyle}>
-          {connectedShops.map(con => (
-            <div key={con.id} style={{...shopCardStyle, borderTop: `4px solid ${con.profiles?.theme_color || '#4f46e5'}`}}>
-              <div style={shopInfoStyle}>
-                <h3 style={shopNameStyle}>{con.profiles?.shop_name}</h3>
-                <span style={shopTagStyle}>{con.profiles?.business_type || '訪問サービス'}</span>
-              </div>
-              <button 
-                onClick={() => navigate(`/shop/${con.shop_id}/reserve/time`, { 
-                  state: { mode: 'facility', facilityUserId: facilityId, totalSlotsNeeded: 12 } 
-                })}
-                style={bookingBtnStyle}
-              >
-                <CalendarCheck size={16} /> 予約・依頼
-              </button>
-            </div>
-          ))}
-          {connectedShops.length === 0 && (
-            <div style={emptyCardStyle}>提携中の業者はありません</div>
-          )}
-        </div>
-      </section>
-
-      <div style={{...sectionTitleStyle, marginTop: '30px'}}><Users size={18} /> 共通入居者名簿</div>
-
-      {/* 検索・追加エリア */}
-      <div style={actionRowStyle}>
-        <div style={searchBoxStyle}>
-          <Search size={18} style={searchIconStyle} />
-          <input 
-            placeholder="名前や部屋番号で検索" 
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            style={searchInputStyle}
-          />
-        </div>
-        <button onClick={() => { resetForm(); setIsModalOpen(true); }} style={addBtnStyle}>
-          <UserPlus size={20} /> 追加
+      {/* 🆕 ナビゲーションタブ：ここで名簿と設定、業者検索を切り替え */}
+      <div style={tabContainerStyle}>
+        <button 
+          onClick={() => setActiveTab('residents')} 
+          style={activeTab === 'residents' ? activeTabStyle : tabStyle}
+        >
+          <Users size={18} /> 名簿管理
+        </button>
+        <button 
+          onClick={() => setActiveTab('settings')} 
+          style={activeTab === 'settings' ? activeTabStyle : tabStyle}
+        >
+          <Settings size={18} /> 受付設定
+        </button>
+        {/* 🆕 修正：業者を探すボタンを追加 */}
+        <button 
+          onClick={() => setActiveTab('find_shops')} 
+          style={activeTab === 'find_shops' ? activeTabStyle : tabStyle}
+        >
+          <Search size={18} /> 業者を探す
         </button>
       </div>
 
-      {/* 名簿リスト */}
-      <div style={{ ...listStyle, paddingBottom: activeRequest ? '140px' : '20px' }}>
-        <div style={listCountStyle}>登録数: {residents.length}名</div>
-        
-        {filteredResidents.map(r => {
-          const isSelected = selectedResidentIds.includes(r.id); // 🆕 選択されているか判定
-          
-          return (
-            <motion.div 
-              key={r.id} 
-              whileTap={{ scale: 0.98 }}
-              style={{
-                ...residentCardStyle, 
-                // 🆕 選択されている時は枠線を紫（#4f46e5）にし、背景を少し明るくする
-                border: isSelected ? '2px solid #4f46e5' : '1px solid #e2e8f0',
-                background: isSelected ? '#f5f7ff' : '#fff',
-              }}
-              onClick={() => handleToggleResident(r.id)} // 🆕 クリックでチェックのON/OFF
-            >
-              {/* 🆕 左側：チェック円（選択状態を表示） */}
-              <div style={checkCircleStyle(isSelected)}>
-                {isSelected && <Check size={14} color="#fff" strokeWidth={3} />}
-              </div>
+      {/* --- コンテンツエリアの分岐開始 --- */}
+      {activeTab === 'residents' ? (
+        <>
+          {/* 提携サービス（業者）セクション */}
+          <section style={sectionAreaStyle}>
+            <h2 style={sectionTitleStyle}><Store size={18} /> 提携サービス（業者）</h2>
+            <div style={shopGridStyle}>
+              {connectedShops
+                .filter(con => con.status === 'active') 
+                .map(con => (
+                  <div key={con.id} style={{...shopCardStyle, borderTop: `4px solid ${con.profiles?.theme_color || '#4f46e5'}`}}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div style={shopInfoStyle}>
+                        <h3 style={shopNameStyle}>{con.profiles?.business_name}</h3>
+                        <span style={shopTagStyle}>{con.profiles?.business_type || '訪問サービス'}</span>
+                      </div>
+                      <button 
+                        onClick={() => handleDisconnect(con)} 
+                        style={{ 
+                          background: '#fee2e2', color: '#ef4444', border: 'none', 
+                          padding: '4px 10px', borderRadius: '8px', fontSize: '0.7rem', 
+                          fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' 
+                        }}
+                      >
+                        <Trash2 size={12} /> 提携解消
+                      </button>
+                    </div>
 
-              {/* 中央：入居者情報 */}
-              <div style={{ flex: 1 }}>
-                <div style={roomNoStyle}>{r.room_number ? `${r.room_number}号室` : '部屋番号未登録'}</div>
-                <h3 style={nameStyle}>{r.name} <span style={kanaStyle}>{r.name_kana}</span></h3>
-                <div style={tagRowStyle}>
-                  {r.has_wheelchair && <span style={tagStyle}>車椅子</span>}
-                  {r.needs_bed_cut && <span style={{...tagStyle, background: '#fee2e2', color: '#ef4444'}}>ベッドカット</span>}
-                </div>
-              </div>
+                    <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '12px', fontSize: '0.75rem', color: '#64748b', display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '10px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Phone size={12} /> {con.profiles?.phone || '電話未登録'}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Mail size={12} /> {con.profiles?.email_contact || 'メール未登録'}</div>
+                    </div>
 
-              {/* 🆕 右側：編集ボタン（独立したボタンとして配置） */}
-              <button 
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation(); // 💡 重要：背後のカードクリックイベントを止める（チェックが走らないように）
-                  setEditingId(r.id);
-                  setFormData(r);
-                  setIsModalOpen(true);
-                }}
-                style={miniEditBtnStyle}
-              >
-                <Edit3 size={18} />
-              </button>
-            </motion.div>
-          );
-        })}
+                    <button 
+                      onClick={() => navigate(`/shop/${con.shop_id}/reserve/time`, { 
+                        state: { mode: 'facility', facilityUserId: facilityId, totalSlotsNeeded: 12 } 
+                      })}
+                      style={{ ...bookingBtnStyle, marginTop: '10px' }}
+                    >
+                      <CalendarCheck size={16} /> 予約・依頼
+                    </button>
+                  </div>
+                ))}
+              {connectedShops.filter(con => con.status === 'active').length === 0 && (
+                <div style={emptyCardStyle}>提携中の業者はありません</div>
+              )}
+            </div>
+          </section>
 
-        {filteredResidents.length === 0 && <div style={emptyTextStyle}>入居者が登録されていません</div>}
-      </div>
+          <div style={{...sectionTitleStyle, marginTop: '30px'}}><Users size={18} /> 共通入居者名簿</div>
 
-      {/* 🆕 アップグレード版：状況に合わせてボタンの役割を自動変更 */}
-      {!activeRequest ? (
-        /* --- 予約（枠）がまだ無いとき --- */
-        <div style={floatingBarStyle}>
-          <div style={floatingInfoStyle}>
-            {selectedResidentIds.length > 0 ? (
-              <span style={{color: '#4f46e5'}}><Users size={16} /> {selectedResidentIds.length}名を選択中</span>
-            ) : (
-              <span style={{color: '#64748b'}}><AlertCircle size={16} /> 次回の予定がありません</span>
-            )}
+          <div style={actionRowStyle}>
+            <div style={searchBoxStyle}>
+              <Search size={18} style={searchIconStyle} />
+              <input 
+                placeholder="名前や部屋番号で検索" 
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                style={searchInputStyle}
+              />
+            </div>
+            <button onClick={() => { resetForm(); setIsModalOpen(true); }} style={addBtnStyle}>
+              <UserPlus size={20} /> 追加
+            </button>
           </div>
-          
-          <button 
-            onClick={() => {
-              // 提携店舗（SnipSnapなど）がない場合はエラー
-              if (connectedShops.length === 0) return alert("提携店舗が見つかりません");
 
-              // カレンダーへ遷移。名簿が選ばれていればそのリストも一緒に渡す
-              navigate(`/shop/${connectedShops[0].profiles.id}/reserve/time`, { 
-                state: { 
-                  mode: 'facility', 
-                  facilityUserId: facilityId, 
-                  selectedResidentIds: selectedResidentIds // 0名でもそのまま渡す
-                } 
-              });
-            }}
-            style={{
-              ...mainActionBtnStyle, 
-              background: selectedResidentIds.length > 0 ? '#4f46e5' : '#1e293b'
-            }}
+          <div style={{ ...listStyle, paddingBottom: activeRequest ? '140px' : '20px' }}>
+            <div style={listCountStyle}>登録数: {residents.length}名</div>
+            {filteredResidents.map(r => {
+              const isSelected = selectedResidentIds.includes(r.id);
+              return (
+                <motion.div 
+                  key={r.id} 
+                  whileTap={{ scale: 0.98 }}
+                  style={{
+                    ...residentCardStyle, 
+                    border: isSelected ? '2px solid #4f46e5' : '1px solid #e2e8f0',
+                    background: isSelected ? '#f5f7ff' : '#fff',
+                  }}
+                  onClick={() => handleToggleResident(r.id)}
+                >
+                  <div style={checkCircleStyle(isSelected)}>
+                    {isSelected && <Check size={14} color="#fff" strokeWidth={3} />}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={roomNoStyle}>{r.room_number ? `${r.room_number}号室` : '部屋番号未登録'}</div>
+                    <h3 style={nameStyle}>{r.name} <span style={kanaStyle}>{r.name_kana}</span></h3>
+                    <div style={tagRowStyle}>
+                      {r.has_wheelchair && <span style={tagStyle}>車椅子</span>}
+                      {r.needs_bed_cut && <span style={{...tagStyle, background: '#fee2e2', color: '#ef4444'}}>ベッドカット</span>}
+                    </div>
+                  </div>
+                  <button 
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingId(r.id);
+                      setFormData(r);
+                      setIsModalOpen(true);
+                    }}
+                    style={miniEditBtnStyle}
+                  >
+                    <Edit3 size={18} />
+                  </button>
+                </motion.div>
+              );
+            })}
+          </div>
+
+          {!activeRequest ? (
+            <div style={floatingBarStyle}>
+              <div style={floatingInfoStyle}>
+                {selectedResidentIds.length > 0 ? (
+                  <span style={{color: '#4f46e5'}}><Users size={16} /> {selectedResidentIds.length}名を選択中</span>
+                ) : (
+                  <span style={{color: '#64748b'}}><AlertCircle size={16} /> 次回の予定がありません</span>
+                )}
+              </div>
+              <button 
+                onClick={() => {
+                  if (connectedShops.length === 0) return alert("提携店舗が見つかりません");
+                  navigate(`/shop/${connectedShops[0].profiles.id}/reserve/time`, { 
+                    state: { mode: 'facility', facilityUserId: facilityId, selectedResidentIds: selectedResidentIds } 
+                  });
+                }}
+                style={{ ...mainActionBtnStyle, background: selectedResidentIds.length > 0 ? '#4f46e5' : '#1e293b' }}
+              >
+                {selectedResidentIds.length > 0 ? <><CalendarCheck size={18} /> このメンバーで日程を選ぶ</> : <><Calendar size={18} /> まずは訪問日だけキープする</>}
+              </button>
+            </div>
+          ) : (
+            <div style={floatingBarStyle}>
+              <div style={floatingInfoStyle}>
+                 <span style={dateBadgeStyle}>{activeRequest.scheduled_date}</span>
+                 <span>のカット依頼を編集中（{selectedResidentIds.length}名）</span>
+              </div>
+              <div style={floatingActionStyle}>
+                <button onClick={() => handleSaveVisitList(false)} disabled={isRequestSaving} style={subActionBtnStyle}>一時保存</button>
+                <button onClick={() => handleSaveVisitList(true)} disabled={isRequestSaving} style={mainActionBtnStyle}>名簿を確定する</button>
+                <button 
+                  onClick={() => navigate(`/shop/${connectedShops[0].profiles.id}/reserve/time`, { 
+                    state: { mode: 'facility', facilityUserId: facilityId, requestId: activeRequest.id } 
+                  })}
+                  style={{...subActionBtnStyle, width: 'auto', flex: 'none', padding: '14px'}}
+                >
+                  <Calendar size={18} />
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      ) : activeTab === 'find_shops' ? (
+        /* 🆕 業者を探すタブが選択された時の分岐を追加 */
+        <div style={{ ...panelStyle, textAlign: 'center', padding: '60px 20px' }}>
+          <Search size={48} color="#cbd5e1" style={{ marginBottom: '20px' }} />
+          <h2 style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#1e293b', marginBottom: '10px' }}>新しい提携業者を探す</h2>
+          <p style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '30px', lineHeight: 1.6 }}>
+            訪問美容・歯科・マッサージなどの専門業者を検索し、<br/>
+            施設への訪問依頼や提携のリクエストを送ることができます。
+          </p>
+          <button 
+            onClick={() => navigate(`/facility-portal/${facilityId}/find-shops`)} 
+            style={{ ...mainActionBtnStyle, width: 'auto', padding: '16px 40px', margin: '0 auto' }}
           >
-            {selectedResidentIds.length > 0 ? (
-              <><CalendarCheck size={18} /> このメンバーで日程を選ぶ</>
-            ) : (
-              <><Calendar size={18} /> まずは訪問日だけキープする</>
-            )}
+            業者検索画面を開く <ChevronRight size={18} />
           </button>
         </div>
       ) : (
-        /* --- 既に予約（枠）があるとき --- */
-        <div style={floatingBarStyle}>
-          <div style={floatingInfoStyle}>
-             <span style={dateBadgeStyle}>{activeRequest.scheduled_date}</span>
-             <span>のカット依頼を編集中（{selectedResidentIds.length}名）</span>
-          </div>
-          <div style={floatingActionStyle}>
-            <button 
-              onClick={() => handleSaveVisitList(false)} 
-              disabled={isRequestSaving}
-              style={subActionBtnStyle}
-            >
-              一時保存
-            </button>
-            <button 
-              onClick={() => handleSaveVisitList(true)} 
-              disabled={isRequestSaving}
-              style={mainActionBtnStyle}
-            >
-              名簿を確定する
-            </button>
-            {/* 🆕 予定日を変更したい場合もカレンダーへ飛ばす */}
-            <button 
-              onClick={() => navigate(`/shop/${connectedShops[0].profiles.id}/reserve/time`, { 
-                state: { 
-                  mode: 'facility', 
-                  facilityUserId: facilityId, 
-                  requestId: activeRequest.id // 既存の枠IDを渡す
-                } 
-              })}
-              style={{...subActionBtnStyle, width: 'auto', flex: 'none', padding: '14px'}}
-            >
-              <Calendar size={18} />
-            </button>
-          </div>
-        </div>
+        /* 受付設定タブの内容 */
+        renderSettings()
       )}
 
-      {/* 入居者登録モーダル */}
+      {/* 入居者追加・編集用モーダル（共通） */}
       <AnimatePresence>
         {isModalOpen && (
           <div style={modalOverlayStyle} onClick={() => setIsModalOpen(false)}>
@@ -461,17 +706,42 @@ const FacilityPortal = () => {
   );
 };
 
-// --- スタイル定義（スマホ操作を意識した大きめボタン設計） ---
+// ==========================================
+// スタイル定義：QUEST HUB 施設ポータル
+// ==========================================
+
+// --- 1. ベース・レイアウト ---
 const containerStyle = { maxWidth: '500px', margin: '0 auto', padding: '20px', minHeight: '100vh', background: '#f8fafc' };
 const headerStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '25px', padding: '10px 0' };
 const facilityLabelStyle = { fontSize: '0.65rem', fontWeight: 'bold', color: '#4f46e5', background: '#4f46e510', padding: '4px 8px', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', gap: '4px', marginBottom: '8px' };
 const titleStyle = { margin: 0, fontSize: '1.4rem', fontWeight: 'bold', color: '#1e293b' };
 const logoutBtnStyle = { background: 'none', border: 'none', color: '#94a3b8', fontSize: '0.8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' };
+const centerStyle = { height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' };
+
+// --- 2. タブ・パネル共通 ---
+const tabContainerStyle = { display: 'flex', background: '#fff', padding: '5px', borderRadius: '15px', marginBottom: '25px', boxShadow: '0 4px 10px rgba(0,0,0,0.03)' };
+const tabStyle = { flex: 1, padding: '12px', border: 'none', borderRadius: '12px', background: 'transparent', color: '#64748b', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', transition: '0.2s' };
+const activeTabStyle = { ...tabStyle, background: '#1e293b', color: '#fff' };
+const panelStyle = { background: '#fff', padding: '20px', borderRadius: '20px', boxShadow: '0 4px 15px rgba(0,0,0,0.05)', marginBottom: '20px' };
+const panelTitle = { margin: 0, fontSize: '1rem', fontWeight: 'bold', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '8px', color: '#1e293b' };
+
+// --- 3. フォーム・入力関連（重複統合） ---
+const formGridStyle = { display: 'flex', flexDirection: 'column', gap: '15px' };
+const formStyle = { display: 'flex', flexDirection: 'column', gap: '15px' }; // モーダル用
+const labelStyle = { display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem', fontWeight: 'bold', color: '#475569', textAlign: 'left' };
+const inputStyle = { width: '100%', padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '1rem', outline: 'none', background: '#f8fafc', boxSizing: 'border-box' };
+const checkGroupStyle = { display: 'flex', flexDirection: 'column', gap: '10px', background: '#f8fafc', padding: '15px', borderRadius: '15px' };
+const checkLabelStyle = { display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.9rem', color: '#1e293b', cursor: 'pointer' };
+const saveBtnStyle = { marginTop: '10px', background: '#1e293b', color: '#fff', border: 'none', padding: '16px', borderRadius: '16px', fontWeight: 'bold', fontSize: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', cursor: 'pointer' };
+
+// --- 4. 名簿管理タブ：検索・追加 ---
 const actionRowStyle = { display: 'flex', gap: '10px', marginBottom: '20px' };
 const searchBoxStyle = { flex: 1, position: 'relative' };
 const searchIconStyle = { position: 'absolute', left: '12px', top: '14px', color: '#cbd5e1' };
 const searchInputStyle = { width: '100%', padding: '12px 12px 12px 40px', borderRadius: '16px', border: '1px solid #e2e8f0', outline: 'none', fontSize: '1rem' };
 const addBtnStyle = { background: '#1e293b', color: '#fff', border: 'none', padding: '0 20px', borderRadius: '16px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' };
+
+// --- 5. 名簿管理タブ：入居者リスト ---
 const listStyle = { display: 'flex', flexDirection: 'column', gap: '12px' };
 const listCountStyle = { fontSize: '0.75rem', color: '#94a3b8', fontWeight: 'bold', marginLeft: '5px' };
 const residentCardStyle = { background: '#fff', padding: '20px', borderRadius: '24px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' };
@@ -480,118 +750,44 @@ const nameStyle = { margin: 0, fontSize: '1.15rem', color: '#1e293b', fontWeight
 const kanaStyle = { fontSize: '0.8rem', color: '#94a3b8', fontWeight: 'normal', marginLeft: '6px' };
 const tagRowStyle = { display: 'flex', gap: '6px', marginTop: '10px' };
 const tagStyle = { fontSize: '0.7rem', background: '#f0f9ff', color: '#0369a1', padding: '4px 10px', borderRadius: '8px', fontWeight: 'bold' };
-const emptyTextStyle = { textAlign: 'center', padding: '50px', color: '#cbd5e1', fontSize: '0.9rem' };
-const modalOverlayStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 1000 };
-const modalContentStyle = { background: '#fff', width: '100%', maxWidth: '500px', borderRadius: '30px 30px 0 0', padding: '30px', maxHeight: '90vh', overflowY: 'auto' };
-const modalHeaderStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' };
-const closeBtnStyle = { background: '#f1f5f9', border: 'none', padding: '8px', borderRadius: '50%', cursor: 'pointer' };
-const formStyle = { display: 'flex', flexDirection: 'column', gap: '15px' };
-const labelStyle = { display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem', fontWeight: 'bold', color: '#475569' };
-const inputStyle = { padding: '14px', borderRadius: '12px', border: '1px solid #cbd5e1', fontSize: '1rem', outline: 'none' };
-const checkGroupStyle = { display: 'flex', flexDirection: 'column', gap: '10px', background: '#f8fafc', padding: '15px', borderRadius: '15px' };
-const checkLabelStyle = { display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.9rem', color: '#1e293b', cursor: 'pointer' };
-const saveBtnStyle = { marginTop: '10px', background: '#1e293b', color: '#fff', border: 'none', padding: '16px', borderRadius: '16px', fontWeight: 'bold', fontSize: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', cursor: 'pointer' };
-const centerStyle = { height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' };
-
-// --- 🆕 追加：名簿選択・チェック円・フローティングバー用のスタイル ---
-
-// チェック状態によって色が変わる円（関数形式）
+const miniEditBtnStyle = { background: '#f8fafc', border: 'none', padding: '10px', borderRadius: '12px', color: '#94a3b8', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' };
 const checkCircleStyle = (selected) => ({
-  width: '24px',
-  height: '24px',
-  borderRadius: '50%',
-  border: selected ? 'none' : '2px solid #cbd5e1',
-  background: selected ? '#4f46e5' : 'transparent',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  marginRight: '15px',
-  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
+  width: '24px', height: '24px', borderRadius: '50%', border: selected ? 'none' : '2px solid #cbd5e1',
+  background: selected ? '#4f46e5' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '15px', transition: 'all 0.2s'
 });
+const emptyTextStyle = { textAlign: 'center', padding: '50px', color: '#cbd5e1', fontSize: '0.9rem' };
 
-// カード右端の独立した編集ボタン
-const miniEditBtnStyle = {
-  background: '#f8fafc',
-  border: 'none',
-  padding: '10px',
-  borderRadius: '12px',
-  color: '#94a3b8',
-  cursor: 'pointer',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  transition: 'all 0.2s'
-};
-
-// 画面下部に固定される保存・確定エリア
-const floatingBarStyle = {
-  position: 'fixed',
-  bottom: 0,
-  left: 0,
-  right: 0,
-  background: '#fff',
-  padding: '20px',
-  boxShadow: '0 -10px 25px rgba(0,0,0,0.08)',
-  zIndex: 900,
-  borderTop: '1px solid #e2e8f0'
-};
-
-const floatingInfoStyle = {
-  fontSize: '0.85rem',
-  color: '#1e293b',
-  fontWeight: 'bold',
-  marginBottom: '12px',
-  display: 'flex',
-  alignItems: 'center',
-  gap: '8px'
-};
-
-const dateBadgeStyle = {
-  background: '#1e293b',
-  color: '#fff',
-  padding: '2px 8px',
-  borderRadius: '6px',
-  fontSize: '0.75rem'
-};
-
-const floatingActionStyle = {
-  display: 'flex',
-  gap: '10px'
-};
-
-const subActionBtnStyle = {
-  flex: 1,
-  padding: '14px',
-  borderRadius: '14px',
-  border: '1px solid #cbd5e1',
-  background: '#fff',
-  color: '#475569',
-  fontWeight: 'bold',
-  cursor: 'pointer',
-  fontSize: '0.9rem'
-};
-
-const mainActionBtnStyle = {
-  flex: 2,
-  padding: '14px',
-  borderRadius: '14px',
-  border: 'none',
-  background: '#4f46e5',
-  color: '#fff',
-  fontWeight: 'bold',
-  cursor: 'pointer',
-  fontSize: '0.9rem',
-  boxShadow: '0 4px 6px -1px rgba(79, 70, 229, 0.2)'
-};
-
+// --- 6. 名簿管理タブ：提携業者（ショップ）グリッド ---
 const sectionAreaStyle = { marginBottom: '30px' };
 const sectionTitleStyle = { fontSize: '0.9rem', fontWeight: 'bold', color: '#64748b', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '8px' };
 const shopGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '15px' };
 const shopCardStyle = { background: '#fff', padding: '20px', borderRadius: '20px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column', gap: '15px' };
-const shopNameStyle = { margin: 0, fontSize: '1.1rem', color: '#1e293b' };
+const shopNameStyle = { margin: 0, fontSize: '1.1rem', color: '#1e293b', fontWeight: 'bold' };
 const shopTagStyle = { fontSize: '0.7rem', color: '#94a3b8', background: '#f8fafc', padding: '2px 8px', borderRadius: '6px' };
 const shopInfoStyle = { flex: 1 };
 const bookingBtnStyle = { background: '#1e293b', color: '#fff', border: 'none', padding: '12px', borderRadius: '12px', fontWeight: 'bold', fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' };
 const emptyCardStyle = { gridColumn: '1/-1', textAlign: 'center', padding: '30px', background: '#fff', borderRadius: '20px', color: '#cbd5e1', fontSize: '0.8rem', border: '2px dashed #f1f5f9' };
+
+// --- 7. 下部フローティングバー（訪問依頼用） ---
+const floatingBarStyle = { position: 'fixed', bottom: 0, left: 0, right: 0, background: '#fff', padding: '20px', boxShadow: '0 -10px 25px rgba(0,0,0,0.08)', zIndex: 900, borderTop: '1px solid #e2e8f0' };
+const floatingInfoStyle = { fontSize: '0.85rem', color: '#1e293b', fontWeight: 'bold', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' };
+const dateBadgeStyle = { background: '#1e293b', color: '#fff', padding: '2px 8px', borderRadius: '6px', fontSize: '0.75rem' };
+const floatingActionStyle = { display: 'flex', gap: '10px' };
+const subActionBtnStyle = { flex: 1, padding: '14px', borderRadius: '14px', border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.9rem' };
+const mainActionBtnStyle = { flex: 2, padding: '14px', borderRadius: '14px', border: 'none', background: '#4f46e5', color: '#fff', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.9rem', boxShadow: '0 4px 12px rgba(79, 70, 229, 0.2)' };
+
+// --- 8. スイッチ & 提携申請 ---
+const settingRowStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid #f1f5f9' };
+const switchStyle = { position: 'relative', display: 'inline-block', width: '46px', height: '24px' };
+const sliderStyle = { position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0, transition: '.3s', borderRadius: '24px' };
+const requestCardStyle = { background: '#fff', padding: '15px', borderRadius: '16px', border: '1px solid #fbbf24', display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' };
+const approveBtnStyle = { background: '#10b981', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.85rem' };
+const rejectBtnStyle = { background: '#f1f5f9', color: '#64748b', border: 'none', padding: '8px 16px', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.85rem' };
+
+// --- 9. モーダルUI ---
+const modalOverlayStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 1000 };
+const modalContentStyle = { background: '#fff', width: '100%', maxWidth: '500px', borderRadius: '30px 30px 0 0', padding: '30px', maxHeight: '90vh', overflowY: 'auto' };
+const modalHeaderStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' };
+const closeBtnStyle = { background: '#f1f5f9', border: 'none', padding: '8px', borderRadius: '50%', cursor: 'pointer' };
 
 export default FacilityPortal;
