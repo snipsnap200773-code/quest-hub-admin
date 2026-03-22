@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { supabase } from '../supabaseClient';
+import { supabase } from '../../supabaseClient';
 import { Building2, Lock, User, ArrowRight, ShieldCheck } from 'lucide-react'; // 🆕 Userを追加
 import { motion } from 'framer-motion';
 

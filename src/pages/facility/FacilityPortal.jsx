@@ -1,0 +1,266 @@
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { supabase } from '../../supabaseClient';
+import { 
+  Users, CalendarPlus, CheckSquare, Clock, History, Printer, 
+  FileText, Settings, HelpCircle, LogOut, Building2, Search,
+  ChevronRight, Menu, X, Store
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import FacilitySettings_PC from './parts/FacilitySettings_PC';
+import FacilityFindShops_PC from './parts/FacilityFindShops_PC';
+import FacilityPartnerShops_PC from './parts/FacilityPartnerShops_PC';
+import FacilityUserList_PC from './parts/FacilityUserList_PC';
+import FacilityKeepDate_PC from './parts/FacilityKeepDate_PC';
+
+// 今後作成するパーツたちをインポートするための準備（今はコメントアウト）
+// import FacilityUserList_PC from './parts/FacilityUserList_PC';
+// import FacilityKeepDate_PC from './parts/FacilityKeepDate_PC';
+
+const FacilityPortal = () => {
+  const { facilityId } = useParams();
+  const navigate = useNavigate();
+  const [facility, setFacility] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('residents'); // 初期タブ
+
+  // 🆕 追加：スマホ判定とメニュー開閉State
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  // 🆕 追加：画面リサイズを監視してスマホかPCか切り替える
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth < 1024;
+      setIsMobile(mobile);
+      if (!mobile) setIsMenuOpen(false); // PCサイズになったらメニューを強制的に閉じる
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // 認証チェック
+  useEffect(() => {
+    const loggedInId = sessionStorage.getItem('facility_user_id');
+    const isActive = sessionStorage.getItem('facility_auth_active');
+    if (!isActive || loggedInId !== facilityId) {
+      navigate(`/facility-login/${facilityId}`);
+      return;
+    }
+    fetchFacilityData();
+  }, [facilityId]);
+
+  const fetchFacilityData = async () => {
+    setLoading(true);
+    const { data } = await supabase.from('facility_users').select('*').eq('id', facilityId).single();
+    if (data) setFacility(data);
+    setLoading(false);
+  };
+
+  // サイドバーのメニュー構成
+  const menuItems = [
+    { id: 'residents', label: 'あつまれ綺麗にする人', icon: <Users size={20} />, sub: '入居者名簿' },
+    { id: 'keep', label: 'キープ！この日とった！', icon: <CalendarPlus size={20} />, sub: '訪問日の確保' },
+    { id: 'booking', label: 'これで決まり！予約確定！', icon: <CheckSquare size={20} />, sub: '予約の実行' },
+    { id: 'status', label: '予約状況・進捗管理', icon: <Clock size={20} />, sub: '現在のステータス' },
+    { id: 'history', label: '過去の訪問記録', icon: <History size={20} />, sub: '履歴の確認' },
+    { id: 'find_shops', label: '新しい業者を探す', icon: <Search size={20} />, sub: '提携先の開拓' },
+    { id: 'partners', label: '提携業者', icon: <Store size={20} />, sub: '契約中のサービス' },
+    { id: 'print_list', label: '掲示用名簿をプリント', icon: <Printer size={20} />, sub: '印刷用データ' },
+    { id: 'invoice', label: '請求書をプリント', icon: <FileText size={20} />, sub: '利用明細' },
+    { id: 'settings', label: '受付・通知設定', icon: <Settings size={20} />, sub: 'システム設定' },
+    { id: 'manual', label: '使い方ガイド', icon: <HelpCircle size={20} />, sub: 'マニュアル' },
+  ];
+
+  if (loading) return <div style={centerStyle}>読み込み中...</div>;
+
+  return (
+    <div style={desktopLayoutStyle}>
+      {/* 🆕 スマホ用の上部ヘッダー（スマホ時のみ表示） */}
+      {isMobile && (
+        <div style={mobileHeaderStyle}>
+          <button onClick={() => setIsMenuOpen(!isMenuOpen)} style={menuToggleBtnStyle}>
+            {isMenuOpen ? <X size={24} /> : <Menu size={24} />}
+          </button>
+          <span style={mobileBrandStyle}>SnipSnap Portal</span>
+        </div>
+      )}
+      
+      {/* 🆕 スマホメニューが開いている時の背景オーバーレイ */}
+      {isMobile && isMenuOpen && (
+        <div onClick={() => setIsMenuOpen(false)} style={overlayStyle} />
+      )}
+
+      {/* 🆕 左側：サイドバーメニュー（関数呼び出し getSidebarStyle を使用） */}
+      <aside style={getSidebarStyle(isMobile, isMenuOpen)}>
+        <div style={sidebarHeaderStyle}>
+          <div style={brandBadgeStyle}>SnipSnap FOR FACILITY</div>
+          <div style={welcomeBoxStyle}>
+            <p style={welcomeLabel}>Welcome,</p>
+            <h2 style={facilityNameDisplay}>{facility?.facility_name} 様</h2>
+          </div>
+        </div>
+
+        <nav style={navAreaStyle}>
+          {menuItems.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => {
+                setActiveTab(item.id);
+                if (isMobile) setIsMenuOpen(false); // スマホ時はタップ後にメニューを閉じる
+              }}
+              style={sidebarBtnStyle(activeTab === item.id)}
+            >
+              <span style={btnIconStyle(activeTab === item.id)}>{item.icon}</span>
+              <div style={btnTextWrapper}>
+                <span style={btnMainLabel}>{item.label}</span>
+                <span style={btnSubLabel(activeTab === item.id)}>{item.sub}</span>
+              </div>
+            </button>
+          ))}
+        </nav>
+
+        <div style={sidebarFooterStyle}>
+          <button 
+            onClick={() => { sessionStorage.clear(); navigate(`/facility-login/${facilityId}`); }} 
+            style={logoutBtnStyle}
+          >
+            <LogOut size={18} /> ログアウト
+          </button>
+        </div>
+      </aside>
+
+      {/* 🆕 右側：メインコンテンツエリア（関数呼び出し getMainAreaStyle を使用） */}
+      <main style={getMainAreaStyle(isMobile)}>
+        <header style={contentHeaderStyle}>
+          <div style={headerTitleGroup}>
+             <span style={headerIcon}>{menuItems.find(i => i.id === activeTab)?.icon}</span>
+             <div>
+               <h1 style={headerMainTitle}>{menuItems.find(i => i.id === activeTab)?.label}</h1>
+               <p style={headerSubTitle}>{facility?.facility_name} 様専用ページ</p>
+             </div>
+          </div>
+        </header>
+
+        <section style={contentBodyStyle(isMobile)}>
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={activeTab}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.2 }}
+            >
+              {/* --- タブごとのコンポーネント出し分け --- */}
+              {activeTab === 'residents' ? (
+  <FacilityUserList_PC facilityId={facilityId} isMobile={isMobile} />
+) : activeTab === 'partners' ? (
+  <FacilityPartnerShops_PC facilityId={facilityId} isMobile={isMobile} />
+) : activeTab === 'keep' ? (
+  <FacilityKeepDate_PC facilityId={facilityId} isMobile={isMobile} /> // 🆕 差し替え
+) : activeTab === 'find_shops' ? (
+  <FacilityFindShops_PC facilityId={facilityId} isMobile={isMobile} />
+) : activeTab === 'settings' ? (
+  <FacilitySettings_PC facilityId={facilityId} isMobile={isMobile} />
+) : (
+  <div style={placeholderCardStyle}>
+                  <h3>【 {menuItems.find(i => i.id === activeTab)?.label} 】</h3>
+                  <p>現在、パーツを個別に作成中です。</p>
+                  <p style={{fontSize: '0.8rem', color: '#94a3b8', marginTop: '10px'}}>
+                    src/pages/facility/parts/{activeTab}.jsx を作成して紐付けます。
+                  </p>
+                </div>
+              )}
+            </motion.div>
+          </AnimatePresence>
+        </section>
+      </main>
+    </div>
+  );
+};
+
+// ==========================================
+// スタイル定義：SnipSnap Professional Brown Theme
+// ==========================================
+
+const desktopLayoutStyle = { display: 'flex', minHeight: '100vh', background: '#fcfaf7', fontFamily: '"Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", Meiryo, sans-serif' };
+
+// 🆕 修正：サイドバー（スマホ時は isMenuOpen に応じて left を変える）
+const getSidebarStyle = (isMobile, isMenuOpen) => ({
+  width: '280px', 
+  background: '#3d2b1f', 
+  color: '#fff', 
+  display: 'flex', 
+  flexDirection: 'column', 
+  position: 'fixed', 
+  height: '100vh', 
+  zIndex: 300, 
+  boxShadow: isMenuOpen ? '10px 0 30px rgba(0,0,0,0.3)' : '4px 0 20px rgba(0,0,0,0.2)',
+  transition: '0.3s ease-in-out',
+  left: isMobile ? (isMenuOpen ? '0' : '-280px') : '0', // スマホ時はスライド
+});
+
+const sidebarHeaderStyle = { padding: '40px 25px 30px', borderBottom: '1px solid rgba(255,255,255,0.05)' };
+const brandBadgeStyle = { color: '#c5a059', fontSize: '0.7rem', fontWeight: '900', letterSpacing: '2px', marginBottom: '15px' };
+const welcomeBoxStyle = { background: 'rgba(0,0,0,0.2)', padding: '15px', borderRadius: '12px', borderLeft: '3px solid #c5a059' };
+const welcomeLabel = { margin: 0, fontSize: '0.65rem', color: '#948b83', textTransform: 'uppercase' };
+const facilityNameDisplay = { margin: '2px 0 0', fontSize: '1rem', fontWeight: 'bold', color: '#fff' };
+
+const navAreaStyle = { flex: 1, padding: '20px 12px', display: 'flex', flexDirection: 'column', gap: '4px', overflowY: 'auto' };
+
+const sidebarBtnStyle = (active) => ({
+  display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 15px', borderRadius: '10px',
+  background: active ? '#c5a059' : 'transparent', color: active ? '#3d2b1f' : '#d1c7be',
+  border: 'none', cursor: 'pointer', transition: '0.2s', width: '100%', textAlign: 'left'
+});
+
+const btnIconStyle = (active) => ({ color: active ? '#3d2b1f' : '#c5a059', display: 'flex', alignItems: 'center' });
+const btnTextWrapper = { display: 'flex', flexDirection: 'column' };
+const btnMainLabel = { fontSize: '0.85rem', fontWeight: 'bold', lineHeight: '1.2' };
+const btnSubLabel = (active) => ({ fontSize: '0.65rem', opacity: active ? 0.8 : 0.5, marginTop: '2px' });
+
+const sidebarFooterStyle = { padding: '20px', borderTop: '1px solid rgba(255,255,255,0.05)' };
+const logoutBtnStyle = { 
+  display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255,255,255,0.05)', 
+  border: 'none', color: '#948b83', padding: '12px', borderRadius: '10px', cursor: 'pointer', width: '100%', fontSize: '0.8rem' 
+};
+
+// 🆕 修正：メインエリア（alignItemsを追加して中央寄せに）
+const getMainAreaStyle = (isMobile) => ({
+  flex: 1, 
+  marginLeft: isMobile ? '0' : '280px', 
+  minHeight: '100vh', 
+  display: 'flex', 
+  flexDirection: 'column',
+  paddingTop: isMobile ? '60px' : '0',
+  alignItems: 'center', // 🆕 PC版でコンテンツを中央に寄せる
+});
+
+const contentHeaderStyle = { width: '100%', padding: '30px 50px', background: '#fff', borderBottom: '1px solid #eee', boxSizing: 'border-box' };
+const headerTitleGroup = { display: 'flex', alignItems: 'center', gap: '15px' };
+const headerIcon = { width: '45px', height: '45px', background: '#fcfaf7', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3d2b1f', border: '1px solid #eee' };
+const headerMainTitle = { margin: 0, fontSize: '1.4rem', fontWeight: '900', color: '#3d2b1f' };
+const headerSubTitle = { margin: '2px 0 0', fontSize: '0.8rem', color: '#999' };
+
+// 🆕 修正：コンテンツのボディ（関数に変更し、maxWidthを設定）
+const contentBodyStyle = (isMobile) => ({ 
+  padding: isMobile ? '20px 15px' : '40px 50px', 
+  width: '100%',
+  maxWidth: '1000px', // 🆕 横に広がりすぎないように制限
+  flex: 1,
+  boxSizing: 'border-box'
+});
+const placeholderCardStyle = { 
+  background: '#fff', padding: '100px 40px', borderRadius: '24px', border: '1px solid #eee', 
+  textAlign: 'center', color: '#3d2b1f', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' 
+};
+
+// 🆕 追加：スマホ専用の追加スタイル
+const mobileHeaderStyle = { position: 'fixed', top: 0, left: 0, right: 0, height: '60px', background: '#3d2b1f', display: 'flex', alignItems: 'center', padding: '0 20px', zIndex: 200, borderBottom: '1px solid rgba(255,255,255,0.05)' };
+const menuToggleBtnStyle = { background: 'none', border: 'none', color: '#c5a059', cursor: 'pointer', display: 'flex', alignItems: 'center' };
+const mobileBrandStyle = { color: '#fff', fontSize: '0.9rem', fontWeight: 'bold', marginLeft: '15px' };
+const overlayStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 250 };
+
+const centerStyle = { height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3d2b1f', background: '#fcfaf7' };
+
+export default FacilityPortal;

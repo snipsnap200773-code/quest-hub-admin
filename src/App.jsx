@@ -39,8 +39,8 @@ import ScheduleSettingsGuide from './pages/admin/settings/ScheduleSettingsGuide'
 
 // ✨ 施設用
 import FacilityManagement from './pages/admin/FacilityManagement';
-import FacilityLogin from './pages/FacilityLogin';
-import FacilityPortal from './pages/FacilityPortal';
+import FacilityLogin from './pages/facility/FacilityLogin';
+import FacilityPortal from './pages/facility/FacilityPortal';
 
 // 🆕 施設又は業者検索・申請画面をインポート
 import FacilitySearch from './components/FacilitySearch';

@@ -42,6 +42,7 @@ const FacilityManagement = () => {
   const [selDay, setSelDay] = useState(1);
   const [selWeek, setSelWeek] = useState(1);
   const [selMonthType, setSelMonthType] = useState(0);
+  const [selTime, setSelTime] = useState('09:00');
 
   useEffect(() => {
     fetchFacilities();
@@ -88,9 +89,18 @@ const FacilityManagement = () => {
   };
 
   const addRule = () => {
-    const exists = formData.regular_rules?.some(r => r.day === selDay && r.week === selWeek && r.monthType === selMonthType);
+    // 時間も含めて重複チェック
+    const exists = formData.regular_rules?.some(r => 
+      r.day === selDay && r.week === selWeek && r.monthType === selMonthType && r.time === selTime
+    );
     if (exists) return;
-    const newRule = { day: selDay, week: selWeek, monthType: selMonthType, time: '09:00' };
+    
+    const newRule = { 
+      day: selDay, 
+      week: selWeek, 
+      monthType: selMonthType, 
+      time: selTime // 🆕 選択された時間を保存
+    };
     setFormData({ ...formData, regular_rules: [...(formData.regular_rules || []), newRule] });
   };
 
@@ -558,7 +568,17 @@ const handleSave = async (e) => {
                           </button>
                         ))}
                       </div>
-                      <button type="button" onClick={addRule} style={ruleAddBtnStyle}>ルールを追加 ➔</button>
+                      <div style={{...tinyLabelStyle, marginTop:'10px'}}>開始時間</div>
+  <input 
+    type="time" 
+    value={selTime} 
+    onChange={(e) => setSelTime(e.target.value)}
+    style={{
+      width: '100%', padding: '12px', borderRadius: '10px', 
+      border: '1px solid #e2e8f0', marginTop: '5px', fontSize: '1rem', fontWeight: 'bold'
+    }}
+  />
+  <button type="button" onClick={addRule} style={ruleAddBtnStyle}>ルールを追加 ➔</button>
                       
                       <div style={ruleListAreaStyle}>
                         {formData.regular_rules?.map((r, i) => (

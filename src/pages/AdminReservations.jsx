@@ -36,6 +36,7 @@ function AdminReservations() {
   const [reservations, setReservations] = useState([]);
   const [visitRequests, setVisitRequests] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [facilityConnections, setFacilityConnections] = useState([]);
   const [message, setMessage] = useState('');
 
   const [startDate, setStartDate] = useState(() => {
@@ -99,6 +100,35 @@ const [privateTaskFields, setPrivateTaskFields] = useState({ title: '', note: ''
 const [mergeCandidate, setMergeCandidate] = useState(null); // 重複が見つかった「大造」さん候補
 const [showMergeConfirm, setShowMergeConfirm] = useState(false); // 3択モーダルの表示フラグ
   const [customerFullHistory, setCustomerFullHistory] = useState([]);
+
+/* 🆕 ここから追記：施設訪問名簿用のポップアップ管理 */
+const [showVisitDetailModal, setShowVisitDetailModal] = useState(false);
+const [visitResidents, setVisitResidents] = useState([]);
+
+// 🏢 施設訪問詳細（入居者リスト）を開く関数
+const openVisitDetail = async (visitId, facilityName) => {
+  if (!visitId) {
+    alert("まだ入居者様の予約が入っていません。");
+    return;
+  }
+  setLoading(true);
+  // 入居者名、メニュー、部屋番号を取得
+  const { data, error } = await supabase
+    .from('visit_request_residents')
+    .select(`
+      menu_name,
+      residents (name, room_number)
+    `)
+    .eq('visit_request_id', visitId);
+
+  if (!error) {
+    setVisitResidents(data || []);
+    // 💡 selectedResには「施設名」をセットしておく（削除はできない）
+    setSelectedRes({ customer_name: facilityName, res_type: 'facility_visit' });
+    setShowVisitDetailModal(true);
+  }
+  setLoading(false);
+};
 const [editFields, setEditFields] = useState({ 
     name: '',       // ✅ 表のお名前用
     admin_name: '', // ✅ 裏のメモ名用
@@ -177,6 +207,14 @@ const { data: resData } = await supabase
       .from('private_tasks')
       .select('*')
       .eq('shop_id', shopId);
+
+    // 🆕 【ここを追加！】提携施設と定期ルールを取得
+    const { data: connData } = await supabase
+      .from('shop_facility_connections')
+      .select('*, facility_users(facility_name)')
+      .eq('shop_id', shopId)
+      .eq('status', 'active');
+    setFacilityConnections(connData || []);
 
     // 3. 🆕 施設訪問依頼の取得
     const { data: visitData } = await supabase
@@ -565,6 +603,44 @@ const openDetail = async (res) => {
     }
   };
   
+  // 🆕 定期キープ（施設とのお約束）の判定：エラー修正版
+  const checkIsRegularKeep = (date) => {
+    const day = date.getDay(); // 0:日, 1:月...
+    const dom = date.getDate();
+    const m = date.getMonth() + 1;
+    const nthWeek = Math.ceil(dom / 7);
+
+    // 最終週・最後から2番目の判定用
+    const tempNext = new Date(date); tempNext.setDate(dom + 7);
+    const isLastWeek = tempNext.getMonth() !== date.getMonth();
+    const tempNext2 = new Date(date); tempNext2.setDate(dom + 14);
+    const isSecondToLastWeek = (tempNext2.getMonth() !== date.getMonth()) && !isLastWeek;
+
+    let result = null; 
+    
+    // facilityConnections をループして条件に合うルールを探す
+    facilityConnections.forEach(conn => {
+      conn.regular_rules?.forEach(rule => {
+        // 月・曜日・週の条件が一致するかチェック
+        const monthMatch = (rule.monthType === 0) || (rule.monthType === 1 && m % 2 !== 0) || (rule.monthType === 2 && m % 2 === 0);
+        const dayMatch = (rule.day === day);
+        let weekMatch = (rule.week === nthWeek);
+        if (rule.week === -1) weekMatch = isLastWeek;
+        if (rule.week === -2) weekMatch = isSecondToLastWeek;
+
+        if (monthMatch && dayMatch && weekMatch) {
+          // 💡 ここで宣言なしの keeper = ... を使っていたのがエラーの正体です
+          // 正しく result オブジェクトに代入します
+          result = {
+            name: conn.facility_users?.facility_name,
+            time: rule.time || '09:00'
+          };
+        }
+      });
+    });
+    return result;
+  };
+
   const checkIsRegularHoliday = (date) => {
     if (!shop?.business_hours?.regular_holidays) return false;
     const holidays = shop.business_hours.regular_holidays;
@@ -662,6 +738,31 @@ const openDetail = async (res) => {
 
 const getStatusAt = (dateStr, timeStr) => {
     const dateObj = new Date(dateStr);
+    
+    // 定期キープのチェック
+    const keeper = checkIsRegularKeep(dateObj);
+    if (keeper) {
+      // 💡 A: 設定された開始時間ピッタリの枠
+      if (timeStr === keeper.time) {
+        const visitReq = visitRequests.find(v => v.scheduled_date === dateStr);
+        return [{
+          res_type: 'facility_visit',
+          customer_name: `${keeper.name} 訪問予定`,
+          isRegularKeep: true,
+          visitId: visitReq?.id,
+          start_time: `${dateStr}T${timeStr}:00`
+        }];
+      }
+      
+      // 💡 B: それ以外の枠（内部的にはブロックだけど、見た目は空けるためのステータス）
+      return [{
+        res_type: 'facility_day_stealth', // 🆕 ステルス枠
+        customer_name: '',
+        isRegularKeep: true,
+        start_time: `${dateStr}T${timeStr}:00`
+      }];
+    }
+
     const currentSlotStart = new Date(`${dateStr}T${timeStr}:00`).getTime();
 
     // 1. 【公】お客様の予約やブロックをチェック
@@ -1006,218 +1107,180 @@ return (
 
 {/* ✅ 親要素：はみ出しを隠し、高さを固定 */}
         <div style={{ flex: 1, overflow: 'hidden', position: 'relative', display: 'flex', flexDirection: 'column' }}>
-          
-<AnimatePresence mode="wait" initial={false}> {/* ✅ modeを"wait"にすると残像が消えます */}
-  <motion.div
-    key={startDate.toISOString()}
-    ref={scrollContainerRef}
-    
-    // 🆕 酔い対策：移動距離を30→10へ短縮、不透明度をメインに
-    initial={{ opacity: 0, x: 10 }} 
-    animate={{ opacity: 1, x: 0 }} 
-    exit={{ opacity: 0 }} 
-    
-    // 🆕 Spring（バネ）設定
-    transition={{ 
-      type: "spring", 
-      stiffness: 400, // バネの強さ（大きいほど速い）
-      damping: 30,    // 抵抗（大きいほど揺れがすぐ止まる）
-      mass: 0.2,       // 軽さ（小さいほど軽快に動く）
-      opacity: { duration: 0.1 } // 透明度の変化だけは一瞬で終わらせる
-    }}
+  <AnimatePresence mode="wait" initial={false}>
+    <motion.div
+      key={startDate.toISOString()}
+      ref={scrollContainerRef}
+      initial={{ opacity: 0, x: 10 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0 }}
+      transition={{ type: "spring", stiffness: 400, damping: 30, mass: 0.2, opacity: { duration: 0.1 } }}
+      drag="x"
+      dragDirectionLock={true}
+      dragConstraints={{ left: 0, right: 0 }}
+      dragElastic={0}
+      onDragEnd={(e, { offset }) => {
+        const swipeThreshold = 50;
+        if (offset.x > swipeThreshold) goPrev();
+        else if (offset.x < -swipeThreshold) goNext();
+      }}
+      style={{ flex: 1, width: '100%', overflowY: 'auto', overflowX: isPC ? 'auto' : 'hidden', cursor: 'grab', touchAction: 'pan-y' }}
+      whileTap={{ cursor: 'grabbing' }}
+    >
+      <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: isPC ? '900px' : '100%' }}>
+        <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: '#fff' }}>
+          <tr>
+            <th style={{ width: isPC ? '80px' : '32px', borderBottom: '0.5px solid #cbd5e1' }}></th>
+            {weekDays.map(date => {
+              const isToday = getJapanDateStr(new Date()) === getJapanDateStr(date);
+              return (
+                <th key={date.toString()} style={{ padding: '4px 0', borderBottom: '0.5px solid #cbd5e1' }}>
+                  <div style={{ fontSize: '0.6rem', color: isToday ? themeColor : '#666' }}>{['日','月','火','水','木','金','土'][date.getDay()]}</div>
+                  <div style={{ fontSize: isPC ? '1.5rem' : '0.9rem', fontWeight: 'bold', color: isToday ? '#fff' : '#333', background: isToday ? themeColor : 'none', width: isPC ? '40px' : '22px', height: isPC ? '40px' : '22px', borderRadius: '50%', margin: '2px auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{date.getDate()}</div>
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {timeSlots.map(time => (
+            <tr key={time} style={{ height: '60px' }}>
+              {/* 左端の時間軸 */}
+              <td style={{ borderRight: '0.5px solid #cbd5e1', borderBottom: '0.5px solid #cbd5e1', textAlign: 'center', background: '#f8fafc' }}>
+                <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 'bold' }}>{time}</span>
+              </td>
 
-drag="x" 
-    dragDirectionLock={true} // 🆕 縦にスクロール中は横スワイプをロックする（iPad対策）
-    dragConstraints={{ left: 0, right: 0 }}
-    dragElastic={0} // 🆕 縦スクロールを邪魔しないよう弾力を0に
+              {weekDays.map(date => {
+                const dStr = getJapanDateStr(date);
+                const resAt = getStatusAt(dStr, time);
+                const isArray = Array.isArray(resAt);
+                const hasRes = resAt !== null;
+                const firstRes = isArray ? resAt[0] : resAt;
+                const reservationCount = isArray ? resAt.length : 0;
 
-              onDragEnd={(e, { offset }) => {
-                const swipeThreshold = 50;
-                if (offset.x > swipeThreshold) goPrev(); // 右スワイプで前週
-                else if (offset.x < -swipeThreshold) goNext(); // 左スワイプで次週
-              }}
+                // 🆕 判定時間を10秒に延長（新着予約の点滅用）
+                const isNew = isArray && resAt.some(r => {
+                  if (!r.created_at) return false;
+                  return (new Date().getTime() - new Date(r.created_at).getTime()) < 10000;
+                });
 
-              // ✅ スタイル：縦スクロールはここで行う
-              style={{ 
-                flex: 1,
-                width: '100%', 
-                overflowY: 'auto', 
-                overflowX: isPC ? 'auto' : 'hidden',
-                cursor: 'grab',
-                touchAction: 'pan-y' // 縦スクロールを邪魔しない
-              }}
-              whileTap={{ cursor: 'grabbing' }}
-            >
-              <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: isPC ? '900px' : '100%' }}>
-                <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: '#fff' }}>
-                  <tr>
-                    <th style={{ width: isPC ? '80px' : '32px', borderBottom: '0.5px solid #cbd5e1' }}></th>
-                    {weekDays.map(date => {
-                      const isToday = getJapanDateStr(new Date()) === getJapanDateStr(date);
-                      return (
-                        /* 曜日の下の線を0.5pxに */
-                        <th key={date.toString()} style={{ padding: '4px 0', borderBottom: '0.5px solid #cbd5e1' }}>
-                          <div style={{ fontSize: '0.6rem', color: isToday ? themeColor : '#666' }}>{['日','月','火','水','木','金','土'][date.getDay()]}</div>
-                          <div style={{ fontSize: isPC ? '1.5rem' : '0.9rem', fontWeight: 'bold', color: isToday ? '#fff' : '#333', background: isToday ? themeColor : 'none', width: isPC ? '40px' : '22px', height: isPC ? '40px' : '22px', borderRadius: '50%', margin: '2px auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{date.getDate()}</div>
-                        </th>
-                      );
-                    })}
-                  </tr>
-                </thead>
-<tbody>
-                  {timeSlots.map(time => (
-                    <tr key={time} style={{ height: '60px' }}>
-                      {/* 左端の時間軸 */}
-                      <td style={{ borderRight: '0.5px solid #cbd5e1', borderBottom: '0.5px solid #cbd5e1', textAlign: 'center', background: '#f8fafc' }}>
-                        <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 'bold' }}>{time}</span>
-                      </td>
+                const dayName = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][date.getDay()];
+                const hours = shop?.business_hours?.[dayName];
+                const isStandardTime = hours && !hours.is_closed && time >= hours.open && time < hours.close;
 
-                      {weekDays.map(date => {
-                        const dStr = getJapanDateStr(date);
-                        const resAt = getStatusAt(dStr, time);
-                        const isArray = Array.isArray(resAt);
+                // この枠でちょうど開始するか
+                const startingHere = isArray ? resAt.filter(r => 
+                  new Date(r.start_time).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false }) === time
+                ) : [];
+                const isStart = startingHere.length > 0;
 
-                        // 🆕 判定時間を10秒に延長し、ログを出して確認できるようにします
-                        const isNew = isArray && resAt.some(r => {
-                          if (!r.created_at) return false;
-                          const diff = (new Date().getTime() - new Date(r.created_at).getTime());
-                          const hit = diff < 10000; // 10秒以内
-                          if (hit) console.log("✨ 光る予約を検知！", r.customer_name);
-                          return hit;
-                        });
-                        const hasRes = resAt !== null;
-                        const firstRes = isArray ? resAt[0] : resAt;
-                        const reservationCount = isArray ? resAt.length : 0;
+                const colors = getCustomerColor(firstRes?.customer_name);
+                const isOtherShop = isArray && resAt.some(r => r.shop_id !== shopId);
+                const isBlocked = (isArray && resAt.some(r => r.res_type === 'blocked')) || (firstRes?.res_type === 'blocked');
+                const isRegularHoliday = !isArray && firstRes?.isRegularHoliday;
+                const isSystemBlocked = !isArray && firstRes?.res_type === 'system_blocked';
 
-                        // 🆕 営業時間内かどうかの判定（既存のロジックから流用）
-                        const dayName = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][date.getDay()];
-                        const hours = shop?.business_hours?.[dayName];
-                        const isStandardTime = hours && !hours.is_closed && time >= hours.open && time < hours.close;
-
-                        // 1. この枠で「ちょうど開始」する人を抽出
-                        const startingHere = isArray ? resAt.filter(r => 
-                          new Date(r.start_time).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false }) === time
-                        ) : [];
-                        const isStart = startingHere.length > 0;
-
-                        // 2. デザインフラグ
-                        const colors = getCustomerColor(firstRes?.customer_name);
-                        const isOtherShop = isArray && resAt.some(r => r.shop_id !== shopId);
-                        const isBlocked = (isArray && resAt.some(r => r.res_type === 'blocked')) || (firstRes?.res_type === 'blocked');
-                        const isRegularHoliday = !isArray && firstRes?.isRegularHoliday;
-                        const isSystemBlocked = !isArray && firstRes?.res_type === 'system_blocked';
-
-                        return (
-                          <td 
-                            key={`${dStr}-${time}`} 
-// --- [修正後] ---
-onClick={() => { 
-  setSelectedDate(dStr); setTargetTime(time); 
+                return (
+                  <td 
+                    key={`${dStr}-${time}`} 
+                    onClick={() => { 
+  setSelectedDate(dStr); setTargetTime(time);
   
-  // 1. DBに記録があるもの（予約、プライベート予定、そして「ブロック」）をすべて抽出
   const items = isArray ? resAt : (resAt ? [resAt] : []);
-  
-  // 💡 修正ポイント：判定に 'blocked' を追加し、かつ ID を持っている（DBに存在する）ものに限定
-  const dbRecords = items.filter(r => r.id && (r.res_type === 'normal' || r.res_type === 'private_task' || r.res_type === 'blocked'));
-  const activeTask = dbRecords[0];
+  const activeTask = items[0];
 
-  // 2. DBに記録がある場合は、詳細を開く（これでブロック解除ボタンが出せます）
-  if (activeTask) {
-    // 💡 複数ある場合はリスト表示、1つなら直接詳細へ
-    if (dbRecords.length > 1) {
-      setSelectedSlotReservations(dbRecords); setShowSlotListModal(true);
+  // 1. 🏢 施設訪問（ラベルあり）を叩いた場合
+  if (activeTask?.res_type === 'facility_visit') {
+    // 💡 手順1で定義した関数をここで呼び出す！
+    openVisitDetail(activeTask.visitId, activeTask.customer_name);
+    return;
+  }
+
+  // 2. 👤 ステルス枠（ラベルなし・お約束日）を叩いた場合
+  if (activeTask?.res_type === 'facility_day_stealth') {
+    if (isStandardTime) {
+      setShowMenuModal(true); // 営業時間内なら「ねじ込み予約」
     } else {
-      openDetail(activeTask);
+      setPrivateTaskFields({ title: '', note: '' });
+      setShowPrivateModal(true); // 営業時間外なら「休憩入力」
     }
     return;
   }
 
-  // 3. DBに記録がない場合（真っ白な空き枠、またはシステム上の定休日）
-  const isHoliday = !isArray && resAt?.isRegularHoliday;
-
-  // 💡 ここも修正：すでにブロック(DB記録)がある場合は上の if で抜けているので、
-  // ここに来るのは「本当に何もない枠」か「定休日」だけになります。
-  if (isStandardTime && !isHoliday) {
-    setShowMenuModal(true); 
-  } else {
-    // 営業時間外、または定休日の場合はプライベート予定を入れる
-    setPrivateTaskFields({ title: '', note: '' });
-    setShowPrivateModal(true);
+  // ...3. 🚫 既存の予約/ブロック詳細の処理...
+  const dbRecords = items.filter(r => r.id);
+  if (dbRecords.length > 0) {
+    if (dbRecords.length > 1) { setSelectedSlotReservations(dbRecords); setShowSlotListModal(true); }
+    else { openDetail(dbRecords[0]); }
+    return;
   }
-}}style={{ 
-                              borderRight: `${isStandardTime ? '0.1px' : '0.1px'} solid #cbd5e1`, 
-                              borderBottom: `${isStandardTime ? '0.1px' : '0.1px'} solid #cbd5e1`, 
-                              position: 'relative', 
-                              cursor: 'pointer', 
-                              background: isStandardTime ? '#fff' : '#fffff3',
-                              // 🆕 td のアニメーションは消してOK
-                            }}
-                          >
-                            {hasRes && !isSystemBlocked && (
-                              <div style={{ 
-                                position: 'absolute', inset: 0, zIndex: 5, overflow: 'hidden',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                background: (isRegularHoliday || isBlocked) ? '#f1f5f9' : (isOtherShop ? '#f8fafc' : (isStart ? colors.bg : '#fff')),
-                                borderLeft: (isRegularHoliday || isBlocked) ? 'none' : `2px solid ${isOtherShop ? '#cbd5e1' : colors.line}`,
-                                // ✅ 修正ポイント：ここに animation を移動！
-                                animation: (isNew && isStart) ? 'flashGold 2s ease-out' : 'none'
-                              }}>
-                                                                {(isRegularHoliday || isBlocked) ? (
-                                  isStart && <span style={{fontSize:'0.65rem', fontWeight:'bold', color:'#94a3b8'}}>{firstRes.customer_name}</span>
-                                ) : (
-                                  isStart ? (
-  <div style={{ fontWeight: 'bold', fontSize: isPC ? '0.85rem' : '0.7rem', color: isOtherShop ? '#94a3b8' : colors.text, textAlign: 'center', whiteSpace: 'nowrap', padding: '0 4px' }}>
-    {(() => {
-      if (startingHere.length === 1) {
-        const res = startingHere[0];
 
-        // 🆕 施設訪問（QUEST HUB経由）の場合の表示を割り込ませる
-        if (res.res_type === 'facility_visit') {
-          return (
-            <div style={{ 
-              display: 'flex', 
-              flexDirection: isPC ? 'row' : 'column', 
-              alignItems: 'center', 
-              gap: '4px', 
-              color: '#4f46e5' // 施設用カラー（インディゴ）
-            }}>
-              <Building2 size={isPC ? 16 : 12} strokeWidth={2.5} />
-              <span style={{ fontSize: isPC ? '0.8rem' : '0.65rem' }}>
-                {isPC ? res.customer_name : res.customer_name.slice(0, 4)}
-              </span>
-            </div>
-          );
-        }
-
-        // --- 以下、既存のロジック（プライベート予定・一般予約） ---
-        const masterName = res.res_type === 'private_task' ? res.customer_name : (res.customers?.name || res.customer_name);
-        const name = masterName.split(/[\s　]+/)[0];
-        const countSuffix = reservationCount > 1 ? ` (${reservationCount}名)` : " 様";
-
-        return isPC ? (`${name}${countSuffix}`) : (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1 }}>
-            <span style={{ writingMode: 'vertical-rl', textOrientation: 'upright' }}>{name}</span>
-            {reservationCount > 1 && <span style={{ fontSize: '0.6rem', marginTop: '2px' }}>({reservationCount})</span>}
-          </div>
-        );
-      }
-      return `👥 ${reservationCount}名`;
-    })()}
-  </div>
-) : null
-                                )}
-                              </div>
+  // ...4. 白い枠・定休日の処理...
+  if (isStandardTime && !isRegularHoliday) { setShowMenuModal(true); }
+  else { setPrivateTaskFields({ title: '', note: '' }); setShowPrivateModal(true); }
+}}
+                    style={{ 
+                      borderRight: '0.1px solid #cbd5e1', borderBottom: '0.1px solid #cbd5e1', 
+                      position: 'relative', cursor: 'pointer', background: isStandardTime ? '#fff' : '#fffff3'
+                    }}
+                  >
+                    {hasRes && !isSystemBlocked && (
+                      <div style={{ 
+                        position: 'absolute', inset: 0, zIndex: 5, overflow: 'hidden',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        background: (firstRes?.res_type === 'facility_day_stealth') ? 'transparent' : 
+                                    (isRegularHoliday || isBlocked) ? '#f1f5f9' : 
+                                    (isOtherShop ? '#f8fafc' : (isStart ? colors.bg : '#fff')),
+                        borderLeft: (firstRes?.res_type === 'facility_day_stealth' || isRegularHoliday || isBlocked) ? 'none' : 
+                                    `2px solid ${isOtherShop ? '#cbd5e1' : colors.line}`,
+                        animation: (isNew && isStart) ? 'flashGold 2s ease-out' : 'none'
+                      }}>
+                        {firstRes?.res_type !== 'facility_day_stealth' && (
+                          <>
+                            {(isRegularHoliday || isBlocked) ? (
+                              isStart && <span style={{fontSize:'0.65rem', fontWeight:'bold', color:'#94a3b8'}}>{firstRes.customer_name}</span>
+                            ) : (
+                              isStart ? (
+                                <div style={{ fontWeight: 'bold', fontSize: isPC ? '0.85rem' : '0.7rem', color: isOtherShop ? '#94a3b8' : colors.text, textAlign: 'center', whiteSpace: 'nowrap', padding: '0 4px' }}>
+                                  {(() => {
+                                    if (startingHere.length === 1) {
+                                      const res = startingHere[0];
+                                      if (res.res_type === 'facility_visit') {
+                                        return (
+                                          <div style={{ display: 'flex', flexDirection: isPC ? 'row' : 'column', alignItems: 'center', gap: '4px', color: '#4f46e5' }}>
+                                            <Building2 size={isPC ? 16 : 12} strokeWidth={2.5} />
+                                            <span style={{ fontSize: isPC ? '0.8rem' : '0.65rem' }}>{isPC ? res.customer_name : res.customer_name.slice(0, 4)}</span>
+                                          </div>
+                                        );
+                                      }
+                                      const masterName = res.res_type === 'private_task' ? res.customer_name : (res.customers?.name || res.customer_name);
+                                      const name = masterName.split(/[\s　]+/)[0];
+                                      const countSuffix = reservationCount > 1 ? ` (${reservationCount}名)` : " 様";
+                                      return isPC ? (`${name}${countSuffix}`) : (
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1 }}>
+                                          <span style={{ writingMode: 'vertical-rl', textOrientation: 'upright' }}>{name}</span>
+                                        </div>
+                                      );
+                                    }
+                                    return `👥 ${reservationCount}名`;
+                                  })()}
+                                </div>
+                              ) : null
                             )}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-                                                              </table>
-            </motion.div>
-          </AnimatePresence>
-        </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </motion.div>
+  </AnimatePresence>
+</div>
         
         {!isPC && (
         <div style={{ 
@@ -1767,7 +1830,51 @@ onClick={() => {
         </div>
       )}
 
-      {/* 🆕 追記：予約枠をピカッと光らせるアニメーション */}
+      {/* 🆕 ここから追記：🏢 施設訪問詳細（名簿）モーダル本体 */}
+{showVisitDetailModal && (
+  <div style={overlayStyle} onClick={() => setShowVisitDetailModal(false)}>
+    <div onClick={(e) => e.stopPropagation()} style={{ ...modalContentStyle, maxWidth: '500px' }}>
+      <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+        <div style={{ fontSize: '2.5rem', marginBottom: '15px' }}>🏢</div>
+        <h2 style={{ margin: 0, fontSize: '1.4rem', color: '#1e293b' }}>{selectedRes?.customer_name}</h2>
+        <p style={{ color: '#64748b', fontWeight: 'bold' }}>施術予定：{visitResidents.length}名</p>
+      </div>
+
+      <div style={{ maxHeight: '400px', overflowY: 'auto', background: '#f8fafc', borderRadius: '15px', padding: '10px' }}>
+        {visitResidents.map((item, idx) => (
+          <div key={idx} style={{ 
+            background: '#fff', padding: '15px', borderRadius: '10px', marginBottom: '8px',
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            border: '1px solid #eef2ff'
+          }}>
+            <div>
+              <span style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block' }}>
+                {item.residents?.room_number ? `${item.residents.room_number}号室` : '---号室'}
+              </span>
+              <span style={{ fontWeight: 'bold', fontSize: '1rem' }}>{item.residents?.name} 様</span>
+            </div>
+            <div style={{ background: `${themeColor}10`, color: themeColor, padding: '4px 10px', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 'bold' }}>
+              {item.menu_name || 'メニュー未設定'}
+            </div>
+          </div>
+        ))}
+        {visitResidents.length === 0 && (
+          <div style={{textAlign:'center', color:'#94a3b8', padding:'20px'}}>まだ予約がありません</div>
+        )}
+      </div>
+
+      <button onClick={() => setShowVisitDetailModal(false)} style={{ 
+        width: '100%', marginTop: '20px', padding: '15px', background: '#1e293b', 
+        color: '#fff', border: 'none', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer' 
+      }}>
+        閉じる
+      </button>
+    </div>
+  </div>
+)}
+{/* 🆕 追記ここまで */}
+
+{/* 🆕 追記：予約枠をピカッと光らせるアニメーション */}
 <style>{`
         @keyframes flashGold {
           0% { 
