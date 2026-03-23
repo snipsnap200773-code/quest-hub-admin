@@ -40,6 +40,7 @@ const MenuSettings = () => {
   const [newCustomOfficialUrl, setNewCustomOfficialUrl] = useState('');
   const [editingCategoryId, setEditingCategoryId] = useState(null);
   const [editingDisableCatId, setEditingDisableCatId] = useState(null);
+  const [isFacilityOnlyCat, setIsFacilityOnlyCat] = useState(false);
 
   // メニュー用State
   const [newServiceName, setNewServiceName] = useState('');
@@ -229,7 +230,8 @@ const handleCategorySubmit = async (e) => {
     e.preventDefault();
     const payload = { 
       name: newCategoryName, url_key: newUrlKey, custom_shop_name: newCustomShopName,
-      custom_description: newCustomDescription, custom_official_url: newCustomOfficialUrl
+      custom_description: newCustomDescription, custom_official_url: newCustomOfficialUrl,
+      is_facility_only: isFacilityOnlyCat // 🆕 ペイロードに追加
     };
 
     if (editingCategoryId) {
@@ -252,8 +254,10 @@ const handleCategorySubmit = async (e) => {
       await supabase.from('service_categories').insert([{ ...payload, shop_id: shopId, sort_order: categories.length }]);
     }
     
+    // 🆕 リセット処理にフラグを追加
     setEditingCategoryId(null); setNewCategoryName(''); setNewUrlKey(''); setNewCustomShopName(''); 
-    fetchMenuDetails(); showMsg('カテゴリと所属メニューを更新しました');
+    setIsFacilityOnlyCat(false); 
+    fetchMenuDetails(); showMsg('カテゴリを更新しました');
   };
 
 const handleServiceSubmit = async (e) => {
@@ -543,8 +547,22 @@ const handleProdCatSubmit = async (e) => {
           <div style={{ display: 'flex', gap: '10px' }}>
             <input placeholder="識別キー (url用)" value={newUrlKey} onChange={(e) => setNewUrlKey(e.target.value)} style={{ ...inputStyle, flex: 1 }} />
             <input placeholder="専用屋号 (任意)" value={newCustomShopName} onChange={(e) => setNewCustomShopName(e.target.value)} style={{ ...inputStyle, flex: 1 }} />
-          </div>
-          <button type="submit" style={{ width: '100%', padding: '14px', background: '#1e293b', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer' }}>
+</div>
+
+{/* 🆕 カテゴリ単位の施設専用スイッチを追加 */}
+<div style={{ padding: '12px', background: isFacilityOnlyCat ? '#f0f9ff' : '#f8fafc', borderRadius: '12px', border: isFacilityOnlyCat ? '2px solid #0ea5e9' : '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '10px' }}>
+  <input 
+    type="checkbox" 
+    checked={isFacilityOnlyCat} 
+    onChange={(e) => setIsFacilityOnlyCat(e.target.checked)} 
+    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+  />
+  <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: isFacilityOnlyCat ? '#0369a1' : '#64748b' }}>
+    このカテゴリを【施設予約専用】にする
+  </span>
+</div>
+
+<button type="submit" style={{ width: '100%', padding: '14px', background: '#1e293b', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer' }}>
             <Plus size={18} style={{ verticalAlign: 'middle', marginRight: '6px' }} /> {editingCategoryId ? 'カテゴリを更新' : '新しいカテゴリを登録'}
           </button>
         </form>
@@ -553,11 +571,33 @@ const handleProdCatSubmit = async (e) => {
           {categories.map((c, idx) => (
             <div key={c.id} style={{ background: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #e5e7eb' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontWeight: 'bold', color: '#1e293b' }}>{c.name}</span>
+                
+                {/* --- 🆕 ここにバッジ表示を追加 --- */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontWeight: 'bold', color: '#1e293b' }}>{c.name}</span>
+                  {c.is_facility_only && (
+                    <span style={{ 
+                      fontSize: '0.6rem', padding: '2px 8px', background: '#0ea5e9', 
+                      color: '#fff', borderRadius: '4px', fontWeight: 'bold' 
+                    }}>施設専用</span>
+                  )}
+                </div>
+                {/* ---------------------------- */}
+
                 <div style={{ display: 'flex', gap: '6px' }}>
                   <button onClick={() => moveItem('category', categories, c.id, 'up')} disabled={idx === 0} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '4px' }}><ArrowUp size={16} /></button>
                   <button onClick={() => moveItem('category', categories, c.id, 'down')} disabled={idx === categories.length - 1} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '4px' }}><ArrowDown size={16} /></button>
-                  <button onClick={() => { setEditingCategoryId(c.id); setNewCategoryName(c.name); setNewUrlKey(c.url_key || ''); setNewCustomShopName(c.custom_shop_name || ''); }} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '4px', color: '#3b82f6' }}><Edit2 size={16} /></button>
+                  
+                  {/* --- 🆕 編集ボタン：setIsFacilityOnlyCat を追加 --- */}
+                  <button onClick={() => { 
+                    setEditingCategoryId(c.id); 
+                    setNewCategoryName(c.name); 
+                    setNewUrlKey(c.url_key || ''); 
+                    setNewCustomShopName(c.custom_shop_name || '');
+                    setIsFacilityOnlyCat(!!c.is_facility_only); // 💡 これを足すことで、編集時にチェックが入ります
+                  }} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '4px', color: '#3b82f6' }}>
+                    <Edit2 size={16} />
+                  </button>
 <button 
   onClick={async () => { 
     if(window.confirm(`「${c.name}」カテゴリを削除しますか？\n※このカテゴリに属するメニューもすべて削除されます。`)) { 

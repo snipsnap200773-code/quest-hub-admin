@@ -1,0 +1,296 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { supabase } from '../../../supabaseClient';
+import { 
+  Users, UserPlus, UserMinus, Calendar, ArrowRight, 
+  CheckCircle2, Search, Info, ListChecks, Scissors 
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+
+const FacilityListUp_PC = ({ facilityId, isMobile }) => {
+  const [residents, setResidents] = useState([]);
+  const [draftList, setDraftList] = useState([]);
+  const [manualKeeps, setManualKeeps] = useState([]);
+  const [regularRules, setRegularRules] = useState([]);
+  const [exclusions, setExclusions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  
+  const [shopId, setShopId] = useState(null);
+  const [shopName, setShopName] = useState('');
+  const [shopServices, setShopServices] = useState([]); 
+  
+  const [facilityName, setFacilityName] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+
+  const currentDate = new Date();
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth();
+
+  useEffect(() => { 
+    const init = async () => {
+      setLoading(true);
+      const { data: fac } = await supabase.from('facility_users').select('facility_name').eq('id', facilityId).single();
+      if (fac) {
+        setFacilityName(fac.facility_name);
+        await fetchData(fac.facility_name);
+      }
+      setLoading(false);
+    };
+    init();
+  }, [facilityId]);
+
+  const fetchData = async (targetFacilityName) => {
+    try {
+      const [resData, draftData, connData] = await Promise.all([
+        supabase.from('members').select('*').eq('facility', targetFacilityName).order('room'),
+        supabase.from('visit_list_drafts').select('*, members(*)').eq('facility_user_id', facilityId),
+        supabase.from('shop_facility_connections').select('shop_id, regular_rules, profiles(business_name)').eq('facility_user_id', facilityId).eq('status', 'active').limit(1).maybeSingle()
+      ]);
+
+      setResidents(resData.data || []);
+      setDraftList(draftData.data || []);
+      
+      if (connData.data) {
+        const sid = connData.data.shop_id;
+        setShopId(sid);
+        setShopName(connData.data.profiles?.business_name || '');
+        setRegularRules(connData.data.regular_rules || []);
+
+        // --- ✅ 🆕 修正：エラーの出ないメニュー取得ロジック ---
+        // 1. まず、その店舗の「施設専用(is_facility_only: true)」カテゴリを特定する
+        const { data: catList } = await supabase
+          .from('service_categories')
+          .select('name')
+          .eq('shop_id', sid)
+          .eq('is_facility_only', true);
+
+        const targetCatNames = catList?.map(c => c.name) || [];
+
+        if (targetCatNames.length > 0) {
+          // 2. 特定したカテゴリに属するメニューだけを拾う
+          const { data: services } = await supabase
+            .from('services')
+            .select('name')
+            .eq('shop_id', sid)
+            .in('category', targetCatNames) // 💡 配列に含まれるものだけ
+            .order('sort_order');
+          
+          setShopServices(services || []);
+        } else {
+          setShopServices([{ name: '（施設用メニュー未設定）' }]);
+        }
+        // --------------------------------------------------
+      }
+
+      const { data: keeps } = await supabase.from('keep_dates').select('*').eq('facility_user_id', facilityId);
+      const { data: excl } = await supabase.from('regular_keep_exclusions').select('excluded_date').eq('facility_user_id', facilityId);
+      setManualKeeps(keeps || []);
+      setExclusions(excl?.map(e => e.excluded_date) || []);
+
+    } catch (err) {
+      console.error("データ取得失敗:", err);
+    }
+  };
+
+  // 判定ロジック等
+  const checkIsRegularKeep = (date) => {
+    const day = date.getDay();
+    const dom = date.getDate();
+    const m = date.getMonth() + 1;
+    const nthWeek = Math.ceil(dom / 7);
+    const tempNext = new Date(date); tempNext.setDate(dom + 7);
+    const isLastWeek = tempNext.getMonth() !== date.getMonth();
+    let isMatch = false;
+    regularRules?.forEach(r => {
+      const monthMatch = (r.monthType === 0) || (r.monthType === 1 && m % 2 !== 0) || (r.monthType === 2 && m % 2 === 0);
+      const dayMatch = (r.day === day);
+      let weekMatch = (r.week === nthWeek) || (r.week === -1 && isLastWeek);
+      if (monthMatch && dayMatch && weekMatch) isMatch = true;
+    });
+    return isMatch;
+  };
+
+  const allEnsuredDates = useMemo(() => {
+    const list = [...manualKeeps.map(k => k.date)];
+    const lastDate = new Date(year, month + 1, 0).getDate();
+    for (let d = 1; d <= lastDate; d++) {
+      const date = new Date(year, month, d);
+      const dateStr = date.toLocaleDateString('sv-SE');
+      if (checkIsRegularKeep(date) && !exclusions.includes(dateStr)) {
+        if (!list.includes(dateStr)) list.push(dateStr);
+      }
+    }
+    return list.sort();
+  }, [manualKeeps, regularRules, exclusions]);
+
+  const addToList = async (resident) => {
+    if (!shopId) return alert("提携業者が未設定です");
+    if (draftList.some(d => d.member_id === resident.id)) return;
+    
+    // 初期メニューとして施設専用メニューの1番目を選択（もしあれば）
+    const defaultMenu = shopServices[0]?.name === '（施設用メニュー未設定）' ? 'カット' : (shopServices[0]?.name || 'カット');
+
+    const { data } = await supabase.from('visit_list_drafts').insert([{ 
+      facility_user_id: facilityId, 
+      shop_id: shopId, 
+      member_id: resident.id,
+      menu_name: defaultMenu 
+    }]).select('*, members(*)').single();
+    if (data) setDraftList([...draftList, data]);
+  };
+
+  const removeFromList = async (id) => {
+    await supabase.from('visit_list_drafts').delete().eq('id', id);
+    setDraftList(draftList.filter(d => d.id !== id));
+  };
+
+  const updateMenu = async (id, menu) => {
+    await supabase.from('visit_list_drafts').update({ menu_name: menu }).eq('id', id);
+    setDraftList(draftList.map(d => d.id === id ? { ...d, menu_name: menu } : d));
+  };
+
+  const unselectedResidents = residents.filter(r => 
+    !draftList.some(d => d.member_id === r.id) && 
+    (r.name.includes(searchTerm) || (r.room || '').includes(searchTerm))
+  );
+
+  if (loading) return <div style={centerStyle}>読込中...</div>;
+
+  return (
+    <div style={containerStyle(isMobile)}>
+      <header style={statusHeader}>
+        <div style={keepInfoCard}>
+          <div style={smallLabel}><Calendar size={14} /> 確保済みの訪問予定</div>
+          <div style={badgeArea}>
+            {allEnsuredDates.map(date => <span key={date} style={keepBadge}>{date.replace(/-/g,'/')}</span>)}
+            {allEnsuredDates.length === 0 && <span style={noDataText}>訪問日が確保されていません</span>}
+          </div>
+        </div>
+        <div style={shopInfoCard}>
+          <div style={smallLabel}><Scissors size={14} /> 今回の担当ショップ</div>
+          <div style={shopNameDisplay}>{shopName || '未設定'}</div>
+        </div>
+      </header>
+
+      <div style={mainGrid(isMobile)}>
+        <section style={columnBox}>
+          <div style={sectionHeader}>
+            <div style={headerTextGroup}>
+               <h3 style={sectionTitle}><Users size={20} /> 入居者名簿</h3>
+               <span style={countBadgeGray}>{unselectedResidents.length}名</span>
+            </div>
+            <div style={searchBox}>
+              <Search size={16} color="#999" />
+              <input type="text" placeholder="名前/部屋番号..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={searchInput}/>
+            </div>
+          </div>
+          
+          <div style={scrollArea}>
+            {unselectedResidents.map(res => (
+              <motion.div key={res.id} onClick={() => addToList(res)} style={residentCard} whileHover={{ x: 5, backgroundColor: '#fcfaf7' }} whileTap={{ scale: 0.98 }}>
+                <div style={resInfo}>
+                  <div style={roomTagBox}>
+                    <span style={fLabel}>{res.floor}</span>
+                    <span style={rLabel}>{res.room}</span>
+                  </div>
+                  <span style={nameText}>{res.name} 様</span>
+                </div>
+                <UserPlus size={20} color="#c5a059" />
+              </motion.div>
+            ))}
+          </div>
+        </section>
+
+        <section style={columnBox}>
+          <div style={{...sectionHeader, borderBottom: '2px solid #c5a059', paddingBottom: '10px'}}>
+            <div style={headerTextGroup}>
+              <h3 style={{...sectionTitle, color: '#c5a059'}}><ListChecks size={20} /> 施術希望者</h3>
+              <span style={countBadgeGold}>{draftList.length}名</span>
+            </div>
+          </div>
+
+          <div style={{...scrollArea, background: '#fff9e6', borderColor: '#f0e6d2'}}>
+            <AnimatePresence>
+              {draftList.map(item => (
+                <motion.div key={item.id} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, x: 50 }} style={selectedCard}>
+                  <div style={{flex: 1}}>
+                    <div style={resInfo}>
+                      <span style={roomBadgeSimple}>{item.members?.floor} {item.members?.room}</span>
+                      <span style={nameTextMain}>{item.members?.name} 様</span>
+                    </div>
+                    <div style={menuRow}>
+                      <select value={item.menu_name} onChange={(e) => updateMenu(item.id, e.target.value)} style={menuSelect}>
+                        {shopServices.map(s => (
+                          <option key={s.name} value={s.name}>{s.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <button onClick={() => removeFromList(item.id)} style={removeBtn}><UserMinus size={20} /></button>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+            {draftList.length === 0 && (
+              <div style={emptyState}>左の名簿から<br/>今回の希望者をタップしてください</div>
+            )}
+          </div>
+        </section>
+      </div>
+
+      <footer style={footerStyle}>
+        <div style={saveNotice}>✨ リストは自動保存されています</div>
+        <button 
+          onClick={() => alert("『予約確定！』画面（最終ステップ）へ進みます")}
+          style={nextStepBtn(draftList.length > 0)}
+          disabled={draftList.length === 0}
+        >
+          これで決まり！予約確定へ進む <ArrowRight size={22} />
+        </button>
+      </footer>
+    </div>
+  );
+};
+
+// スタイルは前回と同じ
+const containerStyle = (isMobile) => ({ width: '100%', maxWidth: '1100px', margin: '0 auto' });
+const centerStyle = { textAlign: 'center', padding: '100px', color: '#3d2b1f', fontWeight: 'bold' };
+const statusHeader = { display: 'flex', gap: '20px', marginBottom: '30px', flexWrap: 'wrap' };
+const keepInfoCard = { background: '#fff', padding: '15px 25px', borderRadius: '15px', border: '1px solid #eee', flex: 2, minWidth: '300px' };
+const shopInfoCard = { background: '#fff', padding: '15px 25px', borderRadius: '15px', border: '1px solid #eee', flex: 1, minWidth: '200px' };
+const smallLabel = { fontSize: '0.7rem', color: '#999', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '8px' };
+const badgeArea = { display: 'flex', gap: '8px', flexWrap: 'wrap' };
+const keepBadge = { background: '#3d2b1f', color: '#fff', padding: '4px 12px', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 'bold' };
+const shopNameDisplay = { fontSize: '1.1rem', fontWeight: '900', color: '#3d2b1f' };
+const noDataText = { fontSize: '0.85rem', color: '#ccc' };
+const mainGrid = (isMobile) => ({ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1.1fr', gap: '25px', marginBottom: '40px' });
+const columnBox = { background: '#fff', borderRadius: '24px', border: '1px solid #eee', padding: '20px', display: 'flex', flexDirection: 'column', height: '650px', boxShadow: '0 4px 12px rgba(0,0,0,0.02)' };
+const sectionHeader = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' };
+const headerTextGroup = { display: 'flex', alignItems: 'center', gap: '10px' };
+const sectionTitle = { margin: 0, fontSize: '1.1rem', fontWeight: '900', display: 'flex', alignItems: 'center', gap: '10px', color: '#3d2b1f' };
+const countBadgeGray = { background: '#f1f5f9', color: '#64748b', padding: '2px 10px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 'bold' };
+const countBadgeGold = { background: '#c5a059', color: '#fff', padding: '2px 10px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 'bold' };
+const searchBox = { display: 'flex', alignItems: 'center', gap: '8px', background: '#f8fafc', padding: '8px 12px', borderRadius: '10px', border: '1px solid #e2e8f0' };
+const searchInput = { border: 'none', background: 'transparent', outline: 'none', fontSize: '0.85rem', width: '120px' };
+const scrollArea = { flex: 1, overflowY: 'auto', padding: '10px', borderRadius: '18px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '10px' };
+const residentCard = { background: '#fff', padding: '12px 15px', borderRadius: '12px', border: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', transition: '0.2s' };
+const selectedCard = { background: '#fff', padding: '15px', borderRadius: '15px', border: '2px solid #c5a059', display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 4px 15px rgba(197, 160, 89, 0.1)' };
+const resInfo = { display: 'flex', alignItems: 'center', gap: '12px' };
+const roomTagBox = { display: 'flex', flexDirection: 'column', alignItems: 'center', background: '#f1f5f9', padding: '4px 8px', borderRadius: '8px', minWidth: '40px' };
+const fLabel = { fontSize: '0.6rem', fontWeight: '900', color: '#94a3b8' };
+const rLabel = { fontSize: '0.85rem', fontWeight: '900', color: '#3d2b1f' };
+const nameText = { fontWeight: 'bold', fontSize: '0.95rem', color: '#334155' };
+const nameTextMain = { fontWeight: '900', fontSize: '1.1rem', color: '#3d2b1f' };
+const roomBadgeSimple = { background: '#3d2b1f', color: '#fff', padding: '2px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 'bold' };
+const menuRow = { marginTop: '10px' };
+const menuSelect = { padding: '8px 12px', borderRadius: '10px', border: '2px solid #e2e8f0', fontSize: '0.9rem', fontWeight: '900', cursor: 'pointer', outline: 'none', background: '#fff', width: '100%', color: '#3d2b1f' };
+const removeBtn = { background: '#fff', border: '1px solid #fee2e2', color: '#ef4444', borderRadius: '10px', padding: '10px', cursor: 'pointer', transition: '0.2s' };
+const emptyState = { textAlign: 'center', color: '#cbd5e1', paddingTop: '100px', fontSize: '0.9rem', fontWeight: 'bold' };
+const footerStyle = { textAlign: 'center', paddingBottom: '100px', marginTop: '30px' };
+const saveNotice = { fontSize: '0.8rem', color: '#c5a059', fontWeight: 'bold', marginBottom: '15px' };
+const nextStepBtn = (active) => ({ 
+  background: active ? '#3d2b1f' : '#ccc', color: '#fff', border: 'none', padding: '20px 50px', borderRadius: '20px', 
+  fontSize: '1.2rem', fontWeight: '900', cursor: active ? 'pointer' : 'default', 
+  display: 'flex', alignItems: 'center', gap: '15px', margin: '0 auto',
+  boxShadow: active ? '0 10px 20px rgba(61, 43, 31, 0.2)' : 'none' 
+});
+
+export default FacilityListUp_PC;

@@ -4,7 +4,8 @@ import { supabase } from '../../supabaseClient';
 import { 
   Users, CalendarPlus, CheckSquare, Clock, History, Printer, 
   FileText, Settings, HelpCircle, LogOut, Building2, Search,
-  ChevronRight, Menu, X, Store
+  ChevronRight, Menu, X, Store, 
+  ListChecks
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import FacilitySettings_PC from './parts/FacilitySettings_PC';
@@ -12,6 +13,7 @@ import FacilityFindShops_PC from './parts/FacilityFindShops_PC';
 import FacilityPartnerShops_PC from './parts/FacilityPartnerShops_PC';
 import FacilityUserList_PC from './parts/FacilityUserList_PC';
 import FacilityKeepDate_PC from './parts/FacilityKeepDate_PC';
+import FacilityListUp_PC from './parts/FacilityListUp_PC.jsx';
 
 // 今後作成するパーツたちをインポートするための準備（今はコメントアウト）
 // import FacilityUserList_PC from './parts/FacilityUserList_PC';
@@ -61,6 +63,7 @@ const FacilityPortal = () => {
   const menuItems = [
     { id: 'residents', label: 'あつまれ綺麗にする人', icon: <Users size={20} />, sub: '入居者名簿' },
     { id: 'keep', label: 'キープ！この日とった！', icon: <CalendarPlus size={20} />, sub: '訪問日の確保' },
+    { id: 'list-up', label: 'リストアップしよう！', icon: <ListChecks size={20} />, sub: '利用者様選択' },
     { id: 'booking', label: 'これで決まり！予約確定！', icon: <CheckSquare size={20} />, sub: '予約の実行' },
     { id: 'status', label: '予約状況・進捗管理', icon: <Clock size={20} />, sub: '現在のステータス' },
     { id: 'history', label: '過去の訪問記録', icon: <History size={20} />, sub: '履歴の確認' },
@@ -157,7 +160,9 @@ const FacilityPortal = () => {
 ) : activeTab === 'partners' ? (
   <FacilityPartnerShops_PC facilityId={facilityId} isMobile={isMobile} />
 ) : activeTab === 'keep' ? (
-  <FacilityKeepDate_PC facilityId={facilityId} isMobile={isMobile} /> // 🆕 差し替え
+  <FacilityKeepDate_PC facilityId={facilityId} isMobile={isMobile} setActiveTab={setActiveTab} /> // 🆕 差し替え
+) : activeTab === 'list-up' ? (
+  <FacilityListUp_PC facilityId={facilityId} isMobile={isMobile} /> // 🆕 追加
 ) : activeTab === 'find_shops' ? (
   <FacilityFindShops_PC facilityId={facilityId} isMobile={isMobile} />
 ) : activeTab === 'settings' ? (
