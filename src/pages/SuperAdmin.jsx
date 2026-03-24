@@ -151,14 +151,15 @@ function SuperAdmin() {
       owner_name: newOwnerName, 
       owner_name_kana: newOwnerNameKana, 
       business_type: newBusinessType, 
-      // 🆕 小カテゴリを保存対象に追加
       sub_business_type: newSubBusinessType,
       email_contact: newEmail, 
       phone: newPhone,
       admin_password: newPass, 
       notify_line_enabled: true, 
-      is_management_enabled: false 
-    }]).select(); // 作成したIDを取得するためにselect()を追加
+      // 🆕 ここを変更：最初から管理機能を「ON」、プランを「フル開放(2)」に設定
+      is_management_enabled: true, 
+      service_plan: 2 
+    }]).select();
 
     if (error) {
       alert('作成に失敗しました: ' + error.message);
@@ -795,21 +796,25 @@ function ShopCard({ shop, index, editingShopId, setEditingShopId, editState, onU
           <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: '15px' }}>業種: {shop.business_type || "未設定"}</div>
           
           {/* ✅ 🆕 プラン選択スイッチへアップグレード */}
-          <div style={{ marginBottom: '15px', padding: '12px', background: (shop.service_plan || 2) === 2 ? '#f5f3ff' : '#f8fafc', borderRadius: '12px', border: `1px dashed ${(shop.service_plan || 2) === 2 ? '#7c3aed' : '#64748b'}` }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-              <LayoutDashboard size={16} color={(shop.service_plan || 2) === 2 ? '#7c3aed' : '#64748b'} />
-              <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: (shop.service_plan || 2) === 2 ? '#7c3aed' : '#64748b' }}>
-                サービスプラン設定
+          <div style={{ marginBottom: '15px', padding: '12px', background: '#f5f3ff', borderRadius: '12px', border: '1px solid #7c3aed' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <CheckCircle2 size={16} color="#7c3aed" />
+              <span style={{ fontSize: '0.85rem', fontWeight: '900', color: '#7c3aed' }}>
+                フル機能開放済み（プラン2）
               </span>
             </div>
+            <p style={{ margin: '5px 0 0 24px', fontSize: '0.7rem', color: '#6d28d9', fontWeight: 'bold' }}>
+              顧客管理・売上集計・予約サイト掲載がすべて有効です。
+            </p>
             
+            {/* 💡 もし個別にダウングレードしたい時だけのために、選択肢は一応残しておきます */}
             <select 
               value={shop.service_plan || 2} 
               onChange={(e) => onToggleManagement(shop.id, e.target.value)} 
-              style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid #ddd', fontSize: '0.85rem', cursor: 'pointer', background: '#fff', outline: 'none', fontWeight: 'bold', color: '#1e293b' }}
+              style={{ width: '100%', marginTop: '10px', padding: '8px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '0.75rem', cursor: 'pointer', background: '#fff', color: '#1e293b' }}
             >
-              <option value={2}>プラン2：フル機能開放（予約サイト掲載あり）</option>
-              <option value={1}>プラン1：内部管理のみ（Web/LINE予約停止）</option>
+              <option value={2}>プラン2：フル機能（標準）</option>
+              <option value={1}>プラン1：内部管理のみ（Web予約停止）</option>
             </select>
           </div>
 

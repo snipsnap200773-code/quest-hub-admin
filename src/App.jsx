@@ -42,6 +42,9 @@ import FacilityManagement from './pages/admin/FacilityManagement';
 import FacilityLogin from './pages/facility/FacilityLogin';
 import FacilityPortal from './pages/facility/FacilityPortal';
 
+// ✨ 施設用タスク
+import AdminFacilityVisit_PC from './pages/AdminFacilityVisit_PC';
+
 // 🆕 施設又は業者検索・申請画面をインポート
 import FacilitySearch from './components/FacilitySearch';
 import ShopSearch from './components/ShopSearch';
@@ -106,6 +109,12 @@ function App() {
         <Route path="/admin/:shopId/facilities" element={<FacilityManagement />} />
         <Route path="/facility-login/:facilityId" element={<FacilityLogin />} /> {/* 🆕 */}
         <Route path="/facility-portal/:facilityId/residents" element={<FacilityPortal />} />
+
+{/* 施設用タスク */}
+        <Route 
+  path="/admin/:shopId/visit-requests/:visitId" 
+  element={<AdminFacilityVisit_PC />} 
+/>
 
 {/* --- 📱 ユーザーエリア --- */}
         <Route path="*" element={

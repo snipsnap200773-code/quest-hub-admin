@@ -112,18 +112,22 @@ const openVisitDetail = async (visitId, facilityName, visitData) => {
   if (!visitId) return;
   setLoading(true);
   
-  // 💡 修正：members テーブルから情報を取得
+  // 🆕 1. 親がいれば親のID、いなければ自分のIDを「名簿取得用」にする
+  // これにより、3/19を開いても3/18に紐付いた10名のリストが取得できます
+  const targetId = visitData.parent_id || visitId;
+
   const { data, error } = await supabase
     .from('visit_request_residents')
     .select(`
+      status,
       menu_name,
       members (name, room, floor)
     `)
-    .eq('visit_request_id', visitId);
+    .eq('visit_request_id', targetId);
 
   if (!error) {
     setVisitResidents(data || []);
-    // 💡 キャンセルボタンで使うために visitData を保持
+    // 💡 visitDataを丸ごとセット（parent_idなどの情報も保持するため）
     setSelectedRes({ 
       ...visitData, 
       id: visitId, 
@@ -1202,73 +1206,62 @@ return (
                   <td 
                     key={`${dStr}-${time}`} 
                     onClick={() => { 
-                      setSelectedDate(dStr); setTargetTime(time);
+                      setSelectedDate(dStr); 
+                      setTargetTime(time);
                       
-                      const items = Array.isArray(resAt) ? resAt : (resAt ? [resAt] : []);
-                      const activeTask = items[0];
+                      // 🆕 定休日やシステムブロックかどうかを先に判定します
+                      const firstItem = Array.isArray(resAt) ? resAt[0] : resAt;
+                      const isBgBlock = firstItem?.isRegularHoliday || firstItem?.res_type === 'system_blocked';
 
-                      // 1. 🏢 確定した施設訪問を叩いた場合
-                      if (activeTask?.res_type === 'facility_visit') {
-                        openVisitDetail(activeTask.visitId, activeTask.customer_name, activeTask.visitData);
-                        return;
-                      }
-
-                      // 🆕 2. 「〇〇 予定」という枠（キープ中・未確定）を叩いた場合
-                      if (activeTask?.res_type === 'facility_keep') {
-                        handleCancelKeep(
-                          activeTask.facility_user_id, 
-                          dStr, 
-                          activeTask.customer_name.replace(' 予定', '')
-                        );
-                        return;
-                      }
-
-                      // 3. 👤 施設訪問日だけど「空いている」時間（ステルス枠）を叩いた場合
-                      if (activeTask?.res_type === 'facility_day_stealth') {
+                      // --- 1. データが何もない、または「定休日」枠の場合 ---
+                      // 💡 ここに isBgBlock の判定を追加することで、定休日でも新規追加画面が開きます
+                      if (!hasRes || isBgBlock) {
                         if (isStandardTime && !isRegularHoliday) {
-                          setShowMenuModal(true); // 👈 ここだけ「ねじ込み」を許可
+                          setShowMenuModal(true); // 通常の新規予約
                         } else {
-                          setPrivateTaskFields({ title: '', note: '' });
-                          setShowPrivateModal(true);
-                        }
-                        return;
-                      }
-
-                      // 2. 👤 施設訪問日だけど「空いている」時間（ステルス枠）を叩いた場合
-                      if (activeTask?.res_type === 'facility_day_stealth') {
-                        if (isStandardTime && !isRegularHoliday) {
-                          setShowMenuModal(true); // 予定の合間に予約を入れる
-                        } else {
-                          setPrivateTaskFields({ title: '', note: '' });
-                          setShowPrivateModal(true);
-                        }
-                        return;
-                      }
-
-                      // 2. 👤 ステルス枠・キープ予定（未確定）を叩いた場合
-                      if (activeTask?.res_type === 'facility_keep') {
-                        alert("まだ入居者様の予約が入っていません。");
-                        return;
-                      }
-
-                      // 3. 👤 施設訪問日だけど「空いている」時間（ステルス枠）を叩いた場合
-                      if (activeTask?.res_type === 'facility_day_stealth') {
-                        if (isStandardTime && !isRegularHoliday) {
-                          setShowMenuModal(true); // 通常通り「ねじ込み予約」が可能
-                        } else {
+                          // ⭐ 定休日の上でクリックした時は、ここが実行されるようになります
                           setPrivateTaskFields({ title: '', note: '' });
                           setShowPrivateModal(true); 
                         }
                         return;
                       }
 
-  // ...4. 白い枠・定休日の処理...
-  if (isStandardTime && !isRegularHoliday) { setShowMenuModal(true); }
-  else { setPrivateTaskFields({ title: '', note: '' }); setShowPrivateModal(true); }
-}}
+                      // --- 2. 実際の予約データ（個人・施設・手動ブロック）がある場合 ---
+                      const items = Array.isArray(resAt) ? resAt : [resAt];
+
+                      if (items.length > 1) {
+                        setSelectedSlotReservations(items);
+                        setShowSlotListModal(true);
+                        return;
+                      }
+
+                      const activeTask = items[0];
+
+                      if (activeTask.res_type === 'facility_visit') {
+                        openVisitDetail(activeTask.visitId, activeTask.customer_name, activeTask.visitData);
+                      } 
+                      else if (activeTask.res_type === 'facility_keep') {
+                        handleCancelKeep(activeTask.facility_user_id, dStr, activeTask.customer_name.replace(' 予定', ''));
+                      }
+                      // 💡 ここでは「背景の定休日」は除外されているので、手動で入れたブロックや予約だけが詳細に飛びます
+                      else if (activeTask.res_type === 'normal' || activeTask.res_type === 'blocked' || activeTask.res_type === 'private_task') {
+                        openDetail(activeTask); 
+                      }
+                      else if (activeTask.res_type === 'facility_day_stealth') {
+                        if (isStandardTime && !isRegularHoliday) {
+                          setShowMenuModal(true);
+                        } else {
+                          setPrivateTaskFields({ title: '', note: '' });
+                          setShowPrivateModal(true);
+                        }
+                      }
+                    }}
                     style={{ 
-                      borderRight: '0.1px solid #cbd5e1', borderBottom: '0.1px solid #cbd5e1', 
-                      position: 'relative', cursor: 'pointer', background: isStandardTime ? '#fff' : '#fffff3'
+                      borderRight: '0.1px solid #cbd5e1', 
+                      borderBottom: '0.1px solid #cbd5e1', 
+                      position: 'relative', 
+                      cursor: 'pointer', 
+                      background: isStandardTime ? '#fff' : '#fffff3'
                     }}
                   >
                     {hasRes && !isSystemBlocked && (
@@ -1884,50 +1877,50 @@ return (
       <div style={{ textAlign: 'center', marginBottom: '20px' }}>
         <div style={{ fontSize: '2.5rem', marginBottom: '15px' }}>🏢</div>
         <h2 style={{ margin: 0, fontSize: '1.4rem', color: '#1e293b' }}>{selectedRes?.customer_name}</h2>
+        {/* 🆕 親予約がある場合に「継続分」と表示 */}
+        {selectedRes?.parent_id && <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 'bold' }}>※ 複数日訪問の継続分</span>}
       </div>
 
-      {/* 🆕 訪問日程リスト（個別キャンセル可能） */}
-      <div style={{ marginBottom: '25px' }}>
-        <label style={{ ...labelStyle, color: '#3d2b1f', fontSize: '0.85rem' }}>📅 訪問予定日程（個別キャンセル可能）</label>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
-          {(selectedRes?.visit_date_list || []).map((item, idx) => {
-            const d = typeof item === 'string' ? item : item.date;
-            const t = typeof item === 'string' ? (selectedRes.start_time || '09:00') : (item.start_time || item.time || '09:00');
-            return (
-              <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '10px 15px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                <span style={{ fontWeight: 'bold', fontSize: '0.95rem' }}>
-                  {d.replace(/-/g, '/')} <small style={{ color: '#64748b', marginLeft: '5px' }}>({t.substring(0, 5)}〜)</small>
-                </span>
-                <button onClick={() => handleCancelSpecificDate(selectedRes.id, d)} style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer', padding: '5px' }}>
-                  <Trash2 size={18} />
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      {/* 🆕 【重要】残り人数のカウント計算 */}
+      {(() => {
+        const total = visitResidents.length;
+        const remaining = visitResidents.filter(r => r.status === 'pending').length;
+        const done = total - remaining;
 
-      {/* 📋 施術希望者リスト（ここは既存のまま） */}
-      <p style={{ color: '#64748b', fontWeight: 'bold', marginBottom: '10px', fontSize: '0.85rem' }}>👥 施術予定者（共通名簿）：{visitResidents.length}名</p>
-      <div style={{ maxHeight: '200px', overflowY: 'auto', background: '#f8fafc', borderRadius: '15px', padding: '10px', border: '1px solid #eee' }}>
-        {visitResidents.map((item, idx) => (
-          <div key={idx} style={{ background: '#fff', padding: '10px 15px', borderRadius: '10px', marginBottom: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>{item.members?.name} 様</span>
-            <span style={{ fontSize: '0.8rem', color: themeColor }}>{item.menu_name}</span>
+        return (
+          <div style={{ background: '#fcfaf7', padding: '15px', borderRadius: '15px', border: '1px solid #f0e6d2', marginBottom: '20px', textAlign: 'center' }}>
+            <div style={{ fontSize: '0.8rem', color: '#948b83', fontWeight: 'bold', marginBottom: '5px' }}>施術の進捗状況</div>
+            <div style={{ fontSize: '1.4rem', fontWeight: '900', color: '#3d2b1f' }}>
+              残り <span style={{ color: '#c5a059', fontSize: '2rem' }}>{remaining}</span> 名 / 全体 {total} 名
+            </div>
+            <div style={{ fontSize: '0.75rem', color: '#10b981', marginTop: '5px', fontWeight: 'bold' }}>
+              （現在までに {done} 名が完了済み）
+            </div>
           </div>
+        );
+      })()}
+
+      {/* 📋 施術予定者リスト（まだ残っている人を優先して表示） */}
+      <p style={{ color: '#64748b', fontWeight: 'bold', marginBottom: '10px', fontSize: '0.85rem' }}>👥 本日の施術予定者（未完了の方）</p>
+      <div style={{ maxHeight: '250px', overflowY: 'auto', background: '#f8fafc', borderRadius: '15px', padding: '10px', border: '1px solid #eee' }}>
+        {visitResidents
+          .filter(r => r.status === 'pending') // 💡 未完了の人だけリストに出す（スッキリ！）
+          .map((item, idx) => (
+            <div key={idx} style={{ background: '#fff', padding: '10px 15px', borderRadius: '10px', marginBottom: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid #e2e8f0' }}>
+              <div>
+                <div style={{ fontWeight: 'bold', fontSize: '0.9rem', color: '#1e293b' }}>{item.members?.name} 様</div>
+                <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{item.members?.room}号室</div>
+              </div>
+              <span style={{ fontSize: '0.8rem', color: themeColor, fontWeight: 'bold' }}>{item.menu_name}</span>
+            </div>
         ))}
+        {visitResidents.filter(r => r.status === 'pending').length === 0 && (
+          <div style={{ textAlign: 'center', padding: '20px', color: '#94a3b8', fontSize: '0.85rem' }}>すべて完了しました！✨</div>
+        )}
       </div>
 
-      {/* 一括キャンセルボタン（念のため残す） */}
-      <button 
-        onClick={() => handleCancelVisit(selectedRes.id)}
-        style={{ width: '100%', marginTop: '20px', padding: '12px', background: '#fff', color: '#ef4444', border: '1px solid #fee2e2', borderRadius: '12px', fontSize: '0.8rem', fontWeight: 'bold', cursor: 'pointer' }}
-      >
-        ⚠️ 全日程を一括キャンセルする
-      </button>
-
-      <button onClick={() => setShowVisitDetailModal(false)} style={{ width: '100%', marginTop: '10px', padding: '12px', background: '#f1f5f9', color: '#64748b', border: 'none', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer' }}>
-        閉じる
+      <button onClick={() => setShowVisitDetailModal(false)} style={{ width: '100%', marginTop: '20px', padding: '15px', background: '#3d2b1f', color: '#fff', border: 'none', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer' }}>
+        詳細を閉じる
       </button>
     </div>
   </div>

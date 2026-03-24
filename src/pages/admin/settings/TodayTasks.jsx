@@ -23,6 +23,7 @@ const TodayTasks = () => {
   const [isSavingMemo, setIsSavingMemo] = useState(false);
 
   const [tasks, setTasks] = useState([]);
+  const [targetDate, setTargetDate] = useState(new Date().toLocaleDateString('sv-SE'));
   const [shopData, setShopData] = useState(null);
   // 🆕 金額計算のためにマスターを保持する箱を追加
   const [services, setServices] = useState([]);
@@ -71,7 +72,7 @@ const TodayTasks = () => {
       fetchTodayTasks();
       fetchMasterData(); // 🆕 マスター情報を取得 [cite: 2026-03-08]
     }
-  }, [shopId]);
+  }, [shopId, targetDate]);
 
 // 🆕 調整項目とカテゴリを並び順通りに取得（NULL/falseの揺れに強い版）
 const fetchMasterData = async () => {
@@ -127,30 +128,27 @@ const fetchMasterData = async () => {
 const fetchTodayTasks = async () => {
   setLoading(true);
   
-  // 1. 今日の日付文字列を作成（"2026-03-20" 形式）
-  const now = new Date();
-  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  // 💡 固定の今日ではなく、targetDate（選択された日）を使う
+  const dateStr = targetDate; 
 
   try {
     // 2. 【個人予約】の取得
-    // customers(name, admin_name) を結合して取得します
     const { data: resData, error: resError } = await supabase
       .from('reservations')
       .select('*, customers(name, admin_name)') 
       .eq('shop_id', shopId)
-      .gte('start_time', `${todayStr} 00:00:00`)
-      .lte('start_time', `${todayStr} 23:59:59`)
+      .gte('start_time', `${dateStr} 00:00:00`)
+      .lte('start_time', `${dateStr} 23:59:59`)
       .eq('res_type', 'normal');
 
     if (resError) throw resError;
 
     // 3. 【施設訪問依頼】の取得
-    // facility_users(facility_name) を結合して取得します
     const { data: visitData, error: visitError } = await supabase
       .from('visit_requests')
       .select('*, facility_users(facility_name)')
       .eq('shop_id', shopId)
-      .eq('scheduled_date', todayStr);
+      .eq('scheduled_date', dateStr);
 
     if (visitError) throw visitError;
 
@@ -371,7 +369,8 @@ const initialSvcs = opt.services || (opt.people ? opt.people.flatMap(p => p.serv
         reservation_id: selectedTask.id,
         customer_id: finalCustomerId,
         total_amount: finalPrice,
-        sale_date: new Date().toLocaleDateString('sv-SE') 
+        // 🆕 決済した今日の日付ではなく、タスクの日付（targetDate）を売上日にする
+        sale_date: targetDate 
       };
 
       if (existingSale) {
@@ -562,54 +561,60 @@ const handleSaveMemo = async () => {
         </div>
       )}
 
-<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', flexWrap: 'wrap', gap: '15px' }}>
-  <div>
-    <h2 style={{ margin: 0, fontSize: '1.4rem', color: '#1e293b', fontWeight: '900' }}>⚡ 今日のタスク</h2>
-    <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>現場実行 ＆ POSレジ</p>
-  </div>
+      {/* --- 🆕 ここからヘッダー修正 --- */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '30px', flexWrap: 'wrap', gap: '15px' }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: '1.4rem', color: '#1e293b', fontWeight: '900' }}>⚡ タスク実行</h2>
+          
+          {/* 📅 日付切り替えコントローラー */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginTop: '12px', background: '#f1f5f9', padding: '4px 8px', borderRadius: '12px', width: 'fit-content' }}>
+            <button 
+              onClick={() => {
+                const d = new Date(targetDate);
+                d.setDate(d.getDate() - 1);
+                setTargetDate(d.toLocaleDateString('sv-SE'));
+              }}
+              style={arrowBtnStyle}
+            >◀</button>
+            
+            <div 
+              onClick={() => setTargetDate(new Date().toLocaleDateString('sv-SE'))}
+              style={{ padding: '4px 12px', fontWeight: 'bold', fontSize: '0.9rem', color: '#334155', cursor: 'pointer', textAlign: 'center', minWidth: '100px' }}
+            >
+              {targetDate === new Date().toLocaleDateString('sv-SE') ? (
+                <span style={{ color: themeColor }}>今日</span>
+              ) : (
+                targetDate.replace(/-/g, '/')
+              )}
+            </div>
 
-  {/* ✅ 帰り道スイッチ：現場から管理画面へ戻る導線 */}
-  <div style={{ display: 'flex', background: '#f1f5f9', padding: '4px', borderRadius: '12px', gap: '4px' }}>
-    <button 
-      onClick={() => navigate(`/admin/${shopId}/reservations`)}
-      style={{
-        padding: '8px 12px',
-        background: '#fff',
-        border: '1px solid #e2e8f0',
-        borderRadius: '8px',
-        fontSize: '0.75rem',
-        fontWeight: 'bold',
-        color: '#475569',
-        cursor: 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '4px',
-        boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
-      }}
-    >
-      <Calendar size={14} /> 📅 カレンダーへ
-    </button>
-    <button 
-      onClick={() => navigate(`/admin/${shopId}/timeline`)}
-      style={{
-        padding: '8px 12px',
-        background: '#fff',
-        border: '1px solid #e2e8f0',
-        borderRadius: '8px',
-        fontSize: '0.75rem',
-        fontWeight: 'bold',
-        color: '#4b2c85', // Timelineのテーマ色
-        cursor: 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '4px',
-        boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
-      }}
-    >
-      <Clock size={14} /> 🕒 タイムラインへ
-    </button>
-  </div>
-</div>      
+            <button 
+              onClick={() => {
+                const d = new Date(targetDate);
+                d.setDate(d.getDate() + 1);
+                setTargetDate(d.toLocaleDateString('sv-SE'));
+              }}
+              style={arrowBtnStyle}
+            >▶</button>
+          </div>
+        </div>
+
+        {/* ✅ 帰り道スイッチ（既存のまま） */}
+        <div style={{ display: 'flex', background: '#f1f5f9', padding: '4px', borderRadius: '12px', gap: '4px' }}>
+          <button 
+            onClick={() => navigate(`/admin/${shopId}/reservations`)}
+            style={navSwitchBtnStyle}
+          >
+            <Calendar size={14} /> 📅 カレンダーへ
+          </button>
+          <button 
+            onClick={() => navigate(`/admin/${shopId}/timeline`)}
+            style={{ ...navSwitchBtnStyle, color: '#4b2c85' }}
+          >
+            <Clock size={14} /> 🕒 タイムラインへ
+          </button>
+        </div>
+      </div>      
       <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
         {/* 🆕 修正：売上対象外（見積りなど）をリストから除外して判定 */}
         {tasks.filter(t => !isSalesExcludedTask(t)).length === 0 ? (
@@ -1342,5 +1347,38 @@ const handleSaveMemo = async () => {
 
     </div> // 👈 ファイルの最後、一番外側の div
   );
+};
+
+// 日付切り替えボタンのスタイル
+const arrowBtnStyle = {
+  border: 'none',
+  background: '#fff',
+  width: '32px',
+  height: '32px',
+  borderRadius: '8px',
+  cursor: 'pointer',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontSize: '0.8rem',
+  color: '#64748b',
+  boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+  fontWeight: 'bold'
+};
+
+// 帰り道スイッチの共通スタイル（既存のインラインを整理）
+const navSwitchBtnStyle = {
+  padding: '8px 12px',
+  background: '#fff',
+  border: '1px solid #e2e8f0',
+  borderRadius: '8px',
+  fontSize: '0.75rem',
+  fontWeight: 'bold',
+  color: '#475569',
+  cursor: 'pointer',
+  display: 'flex',
+  alignItems: 'center',
+  gap: '4px',
+  boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
 };
 export default TodayTasks;

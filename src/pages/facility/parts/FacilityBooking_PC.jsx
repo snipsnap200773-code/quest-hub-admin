@@ -106,34 +106,45 @@ const FacilityBooking_PC = ({ facilityId, setActiveTab }) => {
 
     setLoading(true);
     try {
-      // 🚀 1. 予約の「親」を1件だけ登録
-      const { data: request, error: reqErr } = await supabase
-        .from('visit_requests')
-        .insert([{
-          facility_user_id: facilityId,
-          shop_id: shopInfo.id,
-          // 💡 重要：.date を付けて、塊（オブジェクト）ではなく日付の「文字」だけを渡す
-          scheduled_date: ensuredDates[0].date, 
-          end_date: ensuredDates[ensuredDates.length - 1].date, 
-          visit_date_list: ensuredDates, // ここはJSONBなので塊のままでOK
-          start_time: ensuredDates[0].time, 
-          status: 'confirmed'
-        }])
-        .select().single();
+      // 🆕 複数日連動のための「親ID」を保持する変数
+      let firstRequestId = null;
 
-      if (reqErr) throw reqErr;
+      // 🚀 1. 訪問予定日の日数分、ループして予約を作成します
+      for (let i = 0; i < ensuredDates.length; i++) {
+        const { data: request, error: reqErr } = await supabase
+          .from('visit_requests')
+          .insert([{
+            facility_user_id: facilityId,
+            shop_id: shopInfo.id,
+            scheduled_date: ensuredDates[i].date, // 💡 ループごとの日付を保存
+            start_time: ensuredDates[i].time, 
+            status: 'confirmed',
+            // 🆕 1日目ならnull、2日目以降なら1日目のIDをセット！
+            parent_id: firstRequestId 
+          }])
+          .select().single();
 
-      // 🚀 2. 「子（利用者）」を人数分だけ登録
-      const residentPayloads = drafts.map(d => ({
-        visit_request_id: request.id,
-        member_id: d.member_id,
-        menu_name: d.menu_name
-      }));
+        if (reqErr) throw reqErr;
 
-      const { error: resErr } = await supabase.from('visit_request_residents').insert(residentPayloads);
-      if (resErr) throw resErr;
+        // 💡 1日目（親）の時だけの特別処理
+        if (i === 0) {
+          // A. 2日目以降のためにこのIDを覚えておく
+          firstRequestId = request.id;
 
-      // 🚀 3. メール送信と掃除（ここはこれまでと同じ）
+          // B. 「利用者名簿」をこの親IDに紐付けて登録する
+          // ※名簿は「親」にだけ登録し、子はそれを参照しにいく仕組みです
+          const residentPayloads = drafts.map(d => ({
+            visit_request_id: firstRequestId,
+            member_id: d.member_id,
+            menu_name: d.menu_name
+          }));
+
+          const { error: resErr } = await supabase.from('visit_request_residents').insert(residentPayloads);
+          if (resErr) throw resErr;
+        }
+      }
+
+      // 🚀 2. メール送信（内容は全日程をまとめて送る既存のままでOK）
       const residentListText = drafts.map(d => `・${d.members?.name} 様 (${d.menu_name})`).join('\n');
       const formattedDatesForMail = ensuredDates.map(d => `${d.date.replace(/-/g, '/')} (${d.time})`);
 
@@ -144,7 +155,6 @@ const FacilityBooking_PC = ({ facilityId, setActiveTab }) => {
           shopEmail: shopInfo.email_contact,
           facilityName: facilityName,
           facilityEmail: facilityEmail,
-          // 💡 変換したテキスト版を送る
           scheduledDates: formattedDatesForMail, 
           residentCount: drafts.length,
           residentListText: residentListText,
@@ -153,12 +163,14 @@ const FacilityBooking_PC = ({ facilityId, setActiveTab }) => {
         }
       });
 
+      // 🚀 3. お掃除（下書きとキープを消去）
       await supabase.from('visit_list_drafts').delete().eq('facility_user_id', facilityId);
       await supabase.from('keep_dates').delete().eq('facility_user_id', facilityId);
 
-      alert(`${ensuredDates.length}日間の訪問予約を確定しました！`);
+      alert(`${ensuredDates.length}日間の訪問予約（連動モード）を確定しました！`);
       setActiveTab('status'); 
     } catch (err) {
+      console.error(err);
       alert("エラー: " + err.message);
     }
     setLoading(false);
