@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const FacilityListUp_PC = ({ facilityId, isMobile }) => {
+const FacilityListUp_PC = ({ facilityId, isMobile, setActiveTab }) => {
   const [residents, setResidents] = useState([]);
   const [draftList, setDraftList] = useState([]);
   const [manualKeeps, setManualKeeps] = useState([]);
@@ -239,12 +239,12 @@ const FacilityListUp_PC = ({ facilityId, isMobile }) => {
       <footer style={footerStyle}>
         <div style={saveNotice}>✨ リストは自動保存されています</div>
         <button 
-          onClick={() => alert("『予約確定！』画面（最終ステップ）へ進みます")}
-          style={nextStepBtn(draftList.length > 0)}
-          disabled={draftList.length === 0}
-        >
-          これで決まり！予約確定へ進む <ArrowRight size={22} />
-        </button>
+  onClick={() => setActiveTab('booking')} // 🆕 アラートから変更
+  style={nextStepBtn(draftList.length > 0)}
+  disabled={draftList.length === 0}
+>
+  これで決まり！予約確定へ進む <ArrowRight size={22} />
+</button>
       </footer>
     </div>
   );

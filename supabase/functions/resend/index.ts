@@ -342,6 +342,96 @@ if (type === 'partnership_approved') {
   return new Response(JSON.stringify({ success: true }), { status: 200, headers: corsHeaders });
 }
 
+// ==========================================
+// 🆕 【ここから追加】パターンI：施設訪問予約完了通知（一括予約対応）
+// ==========================================
+if (type === 'facility_booking') {
+  const { 
+    shopName, 
+    shopEmail, 
+    facilityName, 
+    facilityEmail,
+    scheduledDates, // 配列: ["2026-03-27", "2026-03-28"]
+    residentCount,
+    residentListText,
+    shopId,
+    facilityId
+  } = payload;
+
+  const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
+
+  // 日付リストを読みやすく整形
+  const dateListHtml = scheduledDates.map((d: string) => 
+    `<span style="display:inline-block; background:#3d2b1f; color:#fff; padding:4px 10px; border-radius:4px; margin:2px; font-weight:bold;">${d.replace(/-/g, '/')}</span>`
+  ).join(' ');
+
+  // 1. 店舗様への通知（新着予約確定）
+  await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_API_KEY}` },
+    body: JSON.stringify({
+      from: 'QUEST HUB 通知センター <infec@snipsnap.biz>',
+      to: [shopEmail],
+      subject: `【新着】${facilityName} 様より訪問予約（${residentCount}名）が入りました`,
+      html: `
+        <div style="font-family: sans-serif; color: #333; line-height: 1.6; max-width: 550px; margin: 0 auto; border: 1px solid #eee; padding: 25px; border-radius: 12px; border-top: 8px solid #c5a059;">
+          <h2 style="color: #3d2b1f; margin-top: 0;">📅 新しい訪問予約（確定）</h2>
+          <p><strong>${shopName} 様</strong></p>
+          <p>提携施設より訪問予約が確定しましたのでお知らせいたします。</p>
+          
+          <div style="background: #fcfaf7; padding: 20px; border-radius: 10px; margin: 20px 0; border: 1px solid #f0e6d2;">
+            <p style="margin: 0 0 10px 0;"><b>■ 施設名:</b> ${facilityName} 様</p>
+            <p style="margin: 0 0 10px 0;"><b>■ 訪問予定日 (${scheduledDates.length}日間):</b><br>${dateListHtml}</p>
+            <p style="margin: 0;"><b>■ 施術希望人数:</b> ${residentCount} 名</p>
+          </div>
+
+          <div style="margin-bottom: 20px; padding: 15px; background: #fff; border: 1px solid #eee; border-radius: 8px;">
+            <p style="margin: 0 0 8px 0; font-size: 0.85rem; color: #948b83; font-weight: bold;">利用者様リスト（共通）:</p>
+            <pre style="margin: 0; font-family: inherit; font-size: 0.9rem; color: #3d2b1f;">${residentListText}</pre>
+          </div>
+
+          <div style="text-align: center;">
+            <a href="https://quest-hub-five.vercel.app/admin/${shopId}/reservations" style="display: inline-block; background: #3d2b1f; color: #fff; padding: 12px 25px; border-radius: 8px; text-decoration: none; font-weight: bold;">管理画面で詳細を確認する</a>
+          </div>
+        </div>`
+    })
+  });
+
+  // 2. 施設様への通知（サンクスメール）
+  if (facilityEmail) {
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_API_KEY}` },
+      body: JSON.stringify({
+        from: `${shopName} <infec@snipsnap.biz>`,
+        to: [facilityEmail],
+        subject: `【QUEST HUB】訪問予約（${scheduledDates.length}日間）を承りました`,
+        html: `
+          <div style="font-family: sans-serif; color: #333; line-height: 1.6; max-width: 550px; margin: 0 auto; border: 1px solid #eee; padding: 25px; border-radius: 12px;">
+            <h2 style="color: #c5a059; margin-top: 0;">✅ 訪問予約を承りました</h2>
+            <p><strong>${facilityName} 様</strong></p>
+            <p>いつも大変お世話になっております。${shopName} です。</p>
+            <p>以下の内容で訪問予約を承りました。当日お伺いできるのを楽しみにしております。</p>
+            
+            <div style="background: #f8fafc; padding: 20px; border-radius: 10px; margin: 20px 0; border: 1px solid #e2e8f0;">
+              <p style="margin: 0 0 10px 0;"><b>■ 訪問先:</b> ${shopName}</p>
+              <p style="margin: 0 0 10px 0;"><b>■ 訪問予定日:</b><br>${dateListHtml}</p>
+              <p style="margin: 0;"><b>■ 希望人数:</b> ${residentCount} 名</p>
+            </div>
+
+            <p style="font-size: 0.9rem;">予約の内容はポータルの「予約状況・進捗管理」からいつでもご確認いただけます。</p>
+            <div style="text-align: center; margin-top: 20px;">
+              <a href="https://quest-hub-five.vercel.app/facility-login/${facilityId}" style="display: inline-block; background: #c5a059; color: #fff; padding: 12px 25px; border-radius: 8px; text-decoration: none; font-weight: bold;">ポータルへログイン</a>
+            </div>
+          </div>`
+      })
+    });
+  }
+
+  return new Response(JSON.stringify({ success: true }), { status: 200, headers: corsHeaders });
+}
+// 🆕 【ここまで追加】
+
     // ==========================================
     // 🚀 パターンA：店主様への歓迎メール ＆ 三土手さんへの通知送信 (本家ロジック完全維持)
     // ==========================================

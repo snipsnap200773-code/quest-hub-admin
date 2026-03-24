@@ -14,6 +14,7 @@ import FacilityPartnerShops_PC from './parts/FacilityPartnerShops_PC';
 import FacilityUserList_PC from './parts/FacilityUserList_PC';
 import FacilityKeepDate_PC from './parts/FacilityKeepDate_PC';
 import FacilityListUp_PC from './parts/FacilityListUp_PC.jsx';
+import FacilityBooking_PC from './parts/FacilityBooking_PC';
 
 // 今後作成するパーツたちをインポートするための準備（今はコメントアウト）
 // import FacilityUserList_PC from './parts/FacilityUserList_PC';
@@ -162,7 +163,9 @@ const FacilityPortal = () => {
 ) : activeTab === 'keep' ? (
   <FacilityKeepDate_PC facilityId={facilityId} isMobile={isMobile} setActiveTab={setActiveTab} /> // 🆕 差し替え
 ) : activeTab === 'list-up' ? (
-  <FacilityListUp_PC facilityId={facilityId} isMobile={isMobile} /> // 🆕 追加
+  <FacilityListUp_PC facilityId={facilityId} isMobile={isMobile} setActiveTab={setActiveTab} />
+) : activeTab === 'booking' ? ( 
+  <FacilityBooking_PC facilityId={facilityId} setActiveTab={setActiveTab} />
 ) : activeTab === 'find_shops' ? (
   <FacilityFindShops_PC facilityId={facilityId} isMobile={isMobile} />
 ) : activeTab === 'settings' ? (
