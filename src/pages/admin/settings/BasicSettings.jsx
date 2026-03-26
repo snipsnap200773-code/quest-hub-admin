@@ -36,6 +36,7 @@ const [ownerName, setOwnerName] = useState('');
   const [subBusinessType, setSubBusinessType] = useState('');
   const [phone, setPhone] = useState('');
   const [emailContact, setEmailContact] = useState('');
+  const [zipCode, setZipCode] = useState('');
   const [address, setAddress] = useState('');
   const [baseAddress, setBaseAddress] = useState('');
   const [minutesPerKm, setMinutesPerKm] = useState(3);
@@ -62,7 +63,8 @@ if (data) {
       setSubBusinessType(data.sub_business_type || '');
       setPhone(data.phone || '');
       setEmailContact(data.email_contact || '');
-// ✅ 住所に加え、拠点住所と移動スピードも取得する
+// ✅ 郵便番号、住所に加え、拠点住所と移動スピードも取得する
+setZipCode(data.zip_code || ''); // 🆕 郵便番号を取得
 setAddress(data.address || '');
       setBaseAddress(data.base_address || data.address || ''); // 拠点住所が空なら店舗住所を初期値に
       setMinutesPerKm(data.minutes_per_km ?? 3); // nullやundefinedならデフォルト値の3を入れる
@@ -127,7 +129,9 @@ const handleSave = async () => {
       business_type: businessType, 
       // 🆕 保存対象に小カテゴリを追加
       sub_business_type: subBusinessType,
-      phone, email_contact: emailContact, address,
+      phone, email_contact: emailContact, 
+      zip_code: zipCode, // 🆕 保存対象に郵便番号を追加
+      address,
       description, intro_text: introText, notes, image_url: imageUrl, official_url: officialUrl,
       // 🆕 保存対象に追加
       base_address: baseAddress,
@@ -303,10 +307,16 @@ const handleSave = async () => {
           <input value={officialUrl} onChange={(e) => setOfficialUrl(e.target.value)} style={inputStyle} placeholder="https://..." />
         </div>
         
-        {/* 基本連絡先 */}
-        <div style={{ marginBottom: '20px' }}>
-          <label style={labelStyle}><MapPin size={14} /> 住所</label>
-          <input value={address} onChange={(e) => setAddress(e.target.value)} style={inputStyle} placeholder="店舗の所在地" />
+        {/* 🆕 郵便番号 ＆ 住所 セクション */}
+        <div style={{ display: 'grid', gridTemplateColumns: isPC ? '150px 1fr' : '1fr', gap: '15px', marginBottom: '20px' }}>
+          <div>
+            <label style={labelStyle}>郵便番号</label>
+            <input value={zipCode} onChange={(e) => setZipCode(e.target.value)} style={inputStyle} placeholder="123-4567" />
+          </div>
+          <div>
+            <label style={labelStyle}><MapPin size={14} /> 住所</label>
+            <input value={address} onChange={(e) => setAddress(e.target.value)} style={inputStyle} placeholder="店舗の所在地" />
+          </div>
         </div>
         
         {/* 🆕 訪問サービス専用設定セクション */}

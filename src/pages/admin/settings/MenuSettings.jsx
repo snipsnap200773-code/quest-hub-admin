@@ -67,6 +67,7 @@ const MenuSettings = () => {
   const [optSlots, setOptSlots] = useState(0);
   const [optPrice, setOptPrice] = useState(0);
   const [optIsMultiple, setOptIsMultiple] = useState(false);
+  const [optIsAdminOnly, setOptIsAdminOnly] = useState(false);
   const [editingOptionId, setEditingOptionId] = useState(null);
 
   /* ==========================================
@@ -304,7 +305,8 @@ const handleOptionSubmit = async (e) => {
       option_name: optName, 
       additional_slots: Number(optSlots),
       additional_price: Number(optPrice),
-      is_multiple: optIsMultiple // 💡 ここで選択中の「単一/複数」設定を保存
+      is_multiple: optIsMultiple,
+      is_admin_only: optIsAdminOnly
     };
 
     if (editingOptionId) {
@@ -897,39 +899,51 @@ const handleProdCatSubmit = async (e) => {
                 {activeServiceForOptions?.id === s.id && (
                   <div style={{ marginTop: '20px', background: '#f8fafc', padding: '20px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
                     <p style={{ fontSize: '0.85rem', fontWeight: 'bold', color: themeColor, marginBottom: '12px' }}>枝メニュー（追加オプション）の管理</p>
-                    <form onSubmit={handleOptionSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+<form onSubmit={handleOptionSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                       <input placeholder="枝カテゴリ (例: シャンプー, 指名料)" value={optGroupName} onChange={(e) => setOptGroupName(e.target.value)} style={inputStyle} />
                       <input placeholder="枝メニュー名 (例: あり, 担当 A)" value={optName} onChange={(e) => setOptName(e.target.value)} style={inputStyle} required />
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      
+                      {/* 🆕 1段目：数値入力グループ（ここで金額を広く取ります） */}
+                      <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontSize: '0.8rem', color: '#64748b' }}>追加:</span>
-                          <input type="number" value={optSlots} onChange={(e) => setOptSlots(parseInt(e.target.value))} style={{ width: '60px', ...inputStyle }} />
+                          <span style={{ fontSize: '0.8rem', color: '#64748b', whiteSpace: 'nowrap' }}>追加:</span>
+                          <input type="number" value={optSlots} onChange={(e) => setOptSlots(parseInt(e.target.value))} style={{ width: '70px', ...inputStyle }} />
                           <span style={{ fontSize: '0.8rem', color: '#64748b' }}>コマ</span>
                         </div>
-
-                        {/* 💰 🆕 枝メニューの料金入力欄を追加 [cite: 2026-03-08] */}
+                        
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
-    <span style={{ fontSize: '0.8rem', color: '#64748b' }}>料金: +¥</span>
-    <input type="number" value={optPrice} onChange={(e) => setOptPrice(Number(e.target.value))} style={{ flex: 1, ...inputStyle }} placeholder="500" />
-</div>
-
-{/* 🆕 複数選択ON/OFFのスイッチを追加 */}
-<label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', padding: '0 10px' }}>
-  <input 
-    type="checkbox" 
-    checked={optIsMultiple} 
-    onChange={(e) => setOptIsMultiple(e.target.checked)} 
-    style={{ width: '18px', height: '18px' }} 
-  />
-  <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#475569' }}>複数選択を許可</span>
-</label>
-
-<button type="submit" style={{ padding: '12px 20px', background: '#1e293b', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>
-    {editingOptionId ? '枝を更新' : '＋ 枝追加'}
-</button>
+                          <span style={{ fontSize: '0.8rem', color: '#64748b', whiteSpace: 'nowrap' }}>料金: +¥</span>
+                          <input 
+                            type="number" 
+                            value={optPrice} 
+                            onChange={(e) => setOptPrice(Number(e.target.value))} 
+                            style={{ flex: 1, minWidth: '100px', ...inputStyle, fontWeight: 'bold', color: '#d34817' }} 
+                            placeholder="0" 
+                          />
+                        </div>
                       </div>
-                                          </form>
-                    
+
+                      {/* 🆕 2段目：設定スイッチ ＆ 登録ボタン */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', paddingTop: '10px', borderTop: '1px solid #f1f5f9' }}>
+                        <div style={{ display: 'flex', gap: '15px' }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={optIsMultiple} onChange={(e) => setOptIsMultiple(e.target.checked)} style={{ width: '18px', height: '18px' }} />
+                            <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#475569' }}>複数選択可</span>
+                          </label>
+                          
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={optIsAdminOnly} onChange={(e) => setOptIsAdminOnly(e.target.checked)} style={{ width: '18px', height: '18px' }} />
+                            <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: optIsAdminOnly ? '#ef4444' : '#64748b' }}>
+                              {optIsAdminOnly ? '⚠️ 管理者専用' : '🌐 ユーザー可'}
+                            </span>
+                          </label>
+                        </div>
+
+                        <button type="submit" style={{ padding: '12px 25px', background: '#1e293b', color: '#fff', border: 'none', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer' }}>
+                          {editingOptionId ? '枝を更新' : '＋ 枝追加'}
+                        </button>
+                      </div>
+                    </form>                    
 <div style={{ marginTop: '20px' }}>
                       {/* (options || []) で配列であることを保証します [cite: 2026-03-01] */}
                       {Array.from(new Set((options || []).filter(o => o && o.service_id === s.id).map(o => o.group_name || '共通'))).map(group => (

@@ -27,7 +27,14 @@ const FacilityManagement = () => {
   const navigate = useNavigate();
   const [facilities, setFacilities] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [shopSettings, setShopSettings] = useState({ email_notifications_enabled: true });
+  const [shopSettings, setShopSettings] = useState({ 
+    email_notifications_enabled: true,
+    bank_name: '',
+    bank_branch: '',
+    bank_account_type: '普通',
+    bank_account_number: '',
+    bank_account_holder: ''
+  });
   const [isUpdating, setIsUpdating] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -51,10 +58,10 @@ const FacilityManagement = () => {
   const fetchFacilities = async () => {
     setLoading(true);
 
-    // 🆕 店舗自身の通知設定（profiles）を取得
+    // ✅ 修正：振込先情報も一緒に取得するように変更
     const { data: profile } = await supabase
       .from('profiles')
-      .select('email_notifications_enabled')
+      .select('email_notifications_enabled, bank_name, bank_branch, bank_account_type, bank_account_number, bank_account_holder')
       .eq('id', shopId)
       .single();
     
@@ -256,6 +263,33 @@ const handleSave = async (e) => {
     setIsUpdating(false);
   };
 
+  // 🆕 ここから差し込む！！ ==========================================
+  // 振込先情報を一括で更新（保存）する関数
+  const saveBankSettings = async () => {
+    setIsUpdating(true);
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ 
+          bank_name: shopSettings.bank_name,
+          bank_branch: shopSettings.bank_branch,
+          bank_account_type: shopSettings.bank_account_type,
+          bank_account_number: shopSettings.bank_account_number,
+          bank_account_holder: shopSettings.bank_account_holder
+        })
+        .eq('id', shopId);
+
+      if (error) throw error;
+      alert('振込先情報を更新しました！✨');
+    } catch (err) {
+      console.error("Save Bank Error:", err);
+      alert('更新に失敗しました: ' + err.message);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+  // 🏢 ここまで ======================================================
+
   const handleDelete = async (f) => {
     const confirmName = window.prompt(`施設「${f.facility_name}」との提携を解消しますか？\n実行する場合は、確認のため施設名を正確に入力してください：`);
     
@@ -316,39 +350,44 @@ const handleSave = async (e) => {
       </header>
 
       {/* 🆕 店舗側の通知設定パネルを追加 */}
+      {/* 🆕 振込先設定パネルを追加 */}
       {!loading && (
-        <div style={{ ...cardStyle, marginBottom: '30px', padding: '20px', background: '#fff' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <div style={{ ...iconBoxStyle('#4f46e5'), marginBottom: 0, width: '40px', height: '40px' }}>
-                <Mail size={20} />
-              </div>
-              <div>
-                <h3 style={{ margin: 0, fontSize: '0.95rem', color: '#1e293b' }}>提携申請のメール通知</h3>
-                <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>施設から新しく申請が届いた際にメールでお知らせします</p>
-              </div>
+        <div style={{ ...cardStyle, marginBottom: '30px', padding: '25px', background: '#fff' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px', borderBottom: '2px solid #f1f5f9', paddingBottom: '15px' }}>
+            <div style={{ ...iconBoxStyle('#10b981'), marginBottom: 0, width: '40px', height: '40px' }}>
+              <CheckCircle2 size={20} />
             </div>
-            <label style={switchStyle}>
-              <input 
-                type="checkbox" 
-                style={{ opacity: 0, width: 0, height: 0, position: 'absolute' }}
-                checked={shopSettings.email_notifications_enabled} 
-                onChange={(e) => updateShopSetting(e.target.checked)}
-                disabled={isUpdating}
-              />
-              <span style={{
-                ...sliderStyle,
-                backgroundColor: shopSettings.email_notifications_enabled ? '#4f46e5' : '#cbd5e1',
-              }}>
-                <div style={{
-                  width: '18px', height: '18px', backgroundColor: 'white', borderRadius: '50%',
-                  position: 'absolute', top: '3px',
-                  left: shopSettings.email_notifications_enabled ? '24px' : '4px',
-                  transition: '0.3s'
-                }} />
-              </span>
+            <h3 style={{ margin: 0, fontSize: '1rem', color: '#1e293b' }}>請求書のお振込先設定</h3>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px' }}>
+            <label style={labelStyle}>銀行名
+              <input type="text" value={shopSettings.bank_name || ''} onChange={(e) => setShopSettings({...shopSettings, bank_name: e.target.value})} placeholder="例：三菱UFJ銀行" style={inputStyle} />
+            </label>
+            <label style={labelStyle}>支店名
+              <input type="text" value={shopSettings.bank_branch || ''} onChange={(e) => setShopSettings({...shopSettings, bank_branch: e.target.value})} placeholder="例：中山支店" style={inputStyle} />
+            </label>
+            <label style={labelStyle}>種別
+              <select value={shopSettings.bank_account_type || '普通'} onChange={(e) => setShopSettings({...shopSettings, bank_account_type: e.target.value})} style={inputStyle}>
+                <option value="普通">普通</option>
+                <option value="当座">当座</option>
+              </select>
+            </label>
+            <label style={labelStyle}>口座番号
+              <input type="text" value={shopSettings.bank_account_number || ''} onChange={(e) => setShopSettings({...shopSettings, bank_account_number: e.target.value})} placeholder="例：1234567" style={inputStyle} />
+            </label>
+            <label style={{ ...labelStyle, gridColumn: '1 / -1' }}>口座名義（カナ）
+              <input type="text" value={shopSettings.bank_account_holder || ''} onChange={(e) => setShopSettings({...shopSettings, bank_account_holder: e.target.value})} placeholder="例：ミドテ ダイゾウ" style={inputStyle} />
             </label>
           </div>
+          
+          <button 
+            onClick={saveBankSettings} 
+            disabled={isUpdating}
+            style={{ ...addBtnStyle, width: '100%', marginTop: '20px', background: '#1e293b', justifyContent: 'center' }}
+          >
+            {isUpdating ? '保存中...' : '振込先情報を保存する'}
+          </button>
         </div>
       )}
 

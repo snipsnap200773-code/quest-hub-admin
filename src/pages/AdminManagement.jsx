@@ -89,6 +89,9 @@ function AdminManagement() {
   // 🆕 請求書用State
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [invoiceTarget, setInvoiceTarget] = useState(null); // { customer_id, name }
+  // 🆕 追記：請求書の対象年月を管理（初期値は現在の年月）
+  const [invoiceYear, setInvoiceYear] = useState(new Date().getFullYear());
+  const [invoiceMonth, setInvoiceMonth] = useState(new Date().getMonth() + 1);
 
   // ==========================================
   // --- 🆕 画面サイズ管理（エラー解決のために追加） ---
@@ -533,7 +536,13 @@ const completePayment = async () => {
         service_amount: serviceAmt, 
         product_amount: productAmt, 
         sale_date: selectedDate, 
-        details: { services: checkoutServices, products: checkoutProducts, adjustments: checkoutAdjustments } 
+        // 🆕 修正：枝メニュー(options)も売上データに保存する
+        details: { 
+          services: checkoutServices, 
+          options: checkoutOptions, 
+          products: checkoutProducts, 
+          adjustments: checkoutAdjustments 
+        } 
       };
 
       if (existingSale) {
@@ -678,6 +687,22 @@ const completePayment = async () => {
 
   return months;
 }, [allReservations, salesRecords, viewYear]);
+
+  // 🆕 🚀 ここから追加！！ ==========================================
+  // 選択中の顧客（施設）に関連する「利用者一覧」を売上データから抽出する
+  const managedFacilityMembers = useMemo(() => {
+    if (!selectedCustomer) return [];
+    
+    // この施設(customer_id)の全売上データを取得
+    const facilitySales = salesRecords.filter(s => s.customer_id === selectedCustomer.id);
+    
+    // details.members_list の中から名前をすべて抜き出す
+    const allNames = facilitySales.flatMap(s => s.details?.members_list || []).map(m => m.name);
+    
+    // 重複を削除して、あいうえお順に並び替える
+    return [...new Set(allNames)].sort((a, b) => a.localeCompare(b, 'ja'));
+  }, [selectedCustomer, salesRecords]);
+  // 🏢 ここまで ======================================================
   const groupedWholeAdjustments = useMemo(() => {
     const sorted = sortItems(adminAdjustments.filter(adj => adj.service_id === null));
     return sorted.reduce((acc, adj) => { const cat = adj.category || 'その他'; if (!acc[cat]) acc[cat] = []; acc[cat].push(adj); return acc; }, {});
@@ -843,7 +868,176 @@ const completePayment = async () => {
     setIsMenuPopupOpen(false);     // メニュー変更
     setStaffPickerRes(null);      // スタッフ選択
     setSelectedMonthData(null);    // 売上分析の詳細
+    setShowInvoiceModal(false);
   };
+
+  // 🆕 🚀 ここから差し込む！！ ==========================================
+  const handlePrintInvoice = (mode, data) => {
+    const printWin = window.open('', '_blank', 'width=900,height=1000');
+    
+    // 🆕 修正：施設訪問と個人の両方のデータ形式から明細を生成する
+    const members = data.flatMap(s => {
+      // A. 施設訪問の場合（members_listがある場合）
+      if (s.details?.members_list) {
+        return s.details.members_list.map(m => ({ ...m, date: s.sale_date }));
+      }
+      
+      // B. 個人のお客様の場合
+      const baseNames = (s.details?.services || []).map(svc => svc.name).join(', ');
+      // 枝メニュー名（リタッチ等）を結合
+      const optNames = s.details?.options 
+        ? Object.values(s.details.options).map(o => o.option_name).join(', ') 
+        : '';
+      const fullMenu = optNames ? `${baseNames}（${optNames}）` : (baseNames || 'メニューなし');
+      
+      return [{
+        date: s.sale_date,
+        name: invoiceTarget.name, // 顧客名
+        floor: '-',
+        menu: fullMenu,
+        price: s.total_amount
+      }];
+    });
+
+    const total = data.reduce((sum, s) => sum + Number(s.total_amount), 0);
+
+    let content = `
+      <html>
+        <head>
+          <title>請求書類_${invoiceTarget?.name || '無題'}</title>
+          <style>
+            /* 🆕 ここを修正：上下の余白を 25mm、左右を 12mm に設定 */
+            @page { 
+              size: A4; 
+              margin: ${mode === 'full' ? '25mm 12mm' : '0'}; 
+            }
+            
+            body { 
+              font-family: "MS Mincho", "Hiragino Mincho ProN", serif; 
+              margin: 0; 
+              padding: 0; 
+              background: white; 
+            }
+
+            /* 🆕 明細モードのスタイル調整 */
+            .page { 
+              width: 100%; 
+              box-sizing: border-box; 
+              color: black; 
+            }
+
+            h1 { text-align: center; font-size: 28pt; letter-spacing: 15px; border-bottom: 3px solid #000; padding-bottom: 10px; margin-bottom: 30px; }
+            .flex { display: flex; justify-content: space-between; align-items: flex-start; }
+            .invoice-title { border-bottom: 2px solid #000; display: inline-block; min-width: 300px; font-size: 18pt; }
+            .total-box { font-size: 24pt; border-bottom: 3px double #000; margin: 30px 0; padding: 10px 0; }
+            
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th, td { border: 1px solid black; padding: 10px; text-align: left; font-size: 11pt; }
+            th { background: #f2f2f2; }
+            
+            /* 🆕 ページまたぎで表の行が泣き別れしないようにする設定 */
+            tr { page-break-inside: avoid; }
+            
+            .bank-info { 
+              margin-top: 40px; 
+              border: 1px solid #000; 
+              padding: 20px; 
+              font-size: 11pt; 
+              line-height: 1.6;
+              /* 🆕 振込先がページの最後に来たときに切れないようにする */
+              page-break-inside: avoid; 
+            }
+            
+            /* 8分割領収書（チケット）の設定は維持 */
+            .ticket-page { width: 210mm; height: 297mm; display: flex; flex-wrap: wrap; align-content: flex-start; page-break-after: always; }
+            .ticket { width: 105mm; height: 74.25mm; padding: 12mm; box-sizing: border-box; display: flex; flex-direction: column; border: 0.1mm dashed #ccc; position: relative; }
+          </style>
+        </head>
+        <body>
+    `;
+
+    if (mode === 'full') {
+      // --- 📄 明細請求書モード ---
+      content += `
+        <div class="page">
+          <h1>請 求 書</h1>
+          <div class="flex" style="margin-top: 50px;">
+            <div>
+              <div class="invoice-title">${invoiceTarget?.name} 御中</div>
+              <p style="margin-top: 20px; font-size: 12pt;">下記の通り、御請求申し上げます。</p>
+              <div class="total-box">ご請求金額： ¥ ${total.toLocaleString()} -</div>
+            </div>
+            <div style="text-align: right; line-height: 1.5;">
+              <p style="font-weight: bold; font-size: 14pt; margin: 0;">${shop?.business_name || '美容室名'}</p>
+              <p style="margin: 5px 0 0;">〒${shop?.zip_code || ''}</p>
+              <p style="margin: 0;">${shop?.address || ''}</p>
+              <p style="margin: 0;">TEL: ${shop?.phone || ''}</p>
+            </div>
+          </div>
+          <table>
+            <thead>
+  <tr>
+    <th style="width:15%">日付</th>
+    <th style="width:7%">階</th>
+    <th style="width:25%">名前</th>
+    <th style="width:40%">メニュー</th>
+    <th style="width:13%; text-align:right;">金額</th>
+  </tr>
+</thead>
+            <tbody>
+              ${members.map(m => `
+                <tr>
+                  <td>${m.date?.replace(/-/g, '/')}</td>
+                  <td style="text-align:center;">${m.floor || '-'}</td>
+                  <td><strong>${m.name} 様</strong></td>
+                  <td>${m.menu}</td>
+                  <td style="text-align:right;">¥${Number(m.price || 0).toLocaleString()}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+          <div class="bank-info">
+            <span style="font-weight:bold; text-decoration:underline;">【お振込先】</span><br/>
+            ${shop?.bank_name || '---'} ${shop?.bank_branch || '---'} / ${shop?.bank_account_type || '普通'} ${shop?.bank_account_number || '---'} / ${shop?.bank_account_holder || '---'}
+          </div>
+        </div>
+      `;
+    } else {
+      // --- ✂️ 8分割領収書モード ---
+      const pages = Math.ceil(members.length / 8);
+      for (let p = 0; p < pages; p++) {
+        content += `<div class="ticket-page">`;
+        members.slice(p * 8, (p + 1) * 8).forEach(m => {
+          content += `
+            <div class="ticket">
+              <div style="border-bottom:1px solid #000; font-size:11pt; padding-bottom:2px;">領収書</div>
+              <div style="text-align:center; margin:15px 0;">
+  <span style="font-size:16pt; font-weight:bold; border-bottom:1px solid #000; padding:0 15px;">
+    ${m.name} 様
+  </span>
+</div>
+              <div style="background:#eee; text-align:center; font-size:20pt; font-weight:bold; padding:8px; -webkit-print-color-adjust: exact;">¥${Number(m.price || 0).toLocaleString()}</div>
+              <div style="border-bottom:1px solid #000; margin:10px 0; font-size:10pt;">但 ${m.menu} 代として</div>
+              <div style="margin-top:auto; font-size:9pt; display:flex; justify-content:space-between; align-items:flex-end;">
+                <span>${m.date?.replace(/-/g, '/')}</span>
+                <div style="text-align:right;"><strong>${shop?.business_name}</strong></div>
+              </div>
+            </div>
+          `;
+        });
+        content += `</div>`;
+      }
+    }
+
+    content += `
+          <script>window.onload = function() { window.print(); window.close(); };</script>
+        </body>
+      </html>
+    `;
+    printWin.document.write(content);
+    printWin.document.close();
+  };
+  // 🏢 ここまで ======================================================
 
 return (
     <div style={fullPageWrapper} translate="no" className="notranslate">
@@ -1654,6 +1848,33 @@ return (
           >
             <div style={{ ...checkoutHeaderStyle, background: '#008000' }}><div><h3 style={{ margin: 0 }}>{selectedCustomer?.name} 様</h3><p style={{ fontSize: '0.8rem', margin: 0 }}>顧客カルテ編集</p></div><button onClick={() => setIsCustomerInfoOpen(false)} style={{ background: 'none', border: 'none', color: '#fff' }}><X size={24} /></button></div>
             <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
+              
+              {/* 🆕 🚀 ここから施設専用の利用者リストを表示！！ ================== */}
+              {managedFacilityMembers.length > 0 && (
+                <div style={{ marginBottom: '30px', background: '#f0f7ff', padding: '20px', borderRadius: '20px', border: '2px solid #4f46e5' }}>
+                  <SectionTitle icon={<Users size={18} />} title="施設のご利用者・入居者様" color="#4f46e5" />
+                  <p style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: '12px' }}>
+                    名前をタップすると、その方の「個別カルテ」を開いてメモを書けます
+                  </p>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'x', rowGap: '12px', columnGap: '15px' }}>
+                    {managedFacilityMembers.map(name => (
+                      <span 
+                        key={name} 
+                        onClick={() => openCustomerInfo({ customer_name: name })} // 👈 魔法の1行（個人のカルテへジャンプ）
+                        style={{ 
+                          fontSize: '0.95rem', fontWeight: 'bold', color: '#4f46e5', 
+                          cursor: 'pointer', textDecoration: 'underline', textDecorationColor: '#cbd5e1',
+                          background: '#fff', padding: '4px 10px', borderRadius: '8px', border: '1px solid #e0e7ff'
+                        }}
+                      >
+                        {name} 様
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {/* 🏢 ここまで ====================================================== */}
+
               <SectionTitle icon={<User size={16} />} title="基本情報" color="#008000" />
               
               {/* 🆕 順番固定・ボタン付きの最強カルテUI */}
@@ -2045,135 +2266,121 @@ return (
       {/* 🏢 ここまでが先ほど追加した「メンバー内訳」 */}
 
       {/* 🧾 ここから差し込む！！ ========================================== */}
+      {/* 🧾 【完全版】年月選択 ＆ 別ウィンドウ印刷対応 請求書モーダル */}
       {showInvoiceModal && invoiceTarget && (
-        <div className="no-print" style={modalOverlayStyle} onClick={() => setShowInvoiceModal(false)}>
-          <div 
-            style={{ ...modalContentStyle, maxWidth: '850px', width: '95%', height: '90vh', display: 'flex', flexDirection: 'column', padding: '0', overflow: 'hidden' }} 
-            onClick={e => e.stopPropagation()}
-          >
-            {/* 操作ヘッダー（ブラウザ画面のみ表示・印刷時は消える） */}
-            <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 25px', borderBottom: '1px solid #eee', background: '#f8fafc' }}>
-              <div>
-                <h3 style={{ margin: 0, fontSize: '1.1rem' }}>請求書プレビュー</h3>
-                <p style={{ margin: '4px 0 0', fontSize: '0.75rem', color: '#94a3b8' }}>
-                  対象月：{selectedDate.split('-')[0]}年{selectedDate.split('-')[1]}月分
-                </p>
-              </div>
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <button 
-                  onClick={() => window.print()} 
-                  style={{ ...completeBtnStyle, background: '#1e293b', fontSize: '0.9rem', padding: '10px 25px', width: 'auto' }}
-                >
-                  ブラウザの機能で印刷 / PDF保存
-                </button>
-                <button onClick={() => setShowInvoiceModal(false)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#64748b' }}><X size={24}/></button>
-              </div>
+        <div style={modalOverlayStyle} onClick={() => setShowInvoiceModal(false)}>
+          <div style={{ ...modalContentStyle, maxWidth: '800px', width: '95%', background: '#f8fafc' }} onClick={e => e.stopPropagation()}>
+            
+            <div style={{ padding: '20px', borderBottom: '2px solid #1e293b', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0 }}>📄 請求書類 作成・発行</h3>
+              <button onClick={() => setShowInvoiceModal(false)} style={{ border: 'none', background: 'none', cursor: 'pointer' }}><X size={24}/></button>
             </div>
 
-            {/* 請求書本体（ここが A4 の紙になります） */}
-            <div id="invoice-print-area" style={{ flex: 1, overflowY: 'auto', background: '#fff', padding: '60px', color: '#000', fontFamily: '"MS Mincho", "Hiragino Mincho ProN", serif' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '60px' }}>
-                <h1 style={{ fontSize: '2.8rem', margin: 0, letterSpacing: '15px', borderBottom: '4px solid #000', paddingBottom: '5px' }}>請求書</h1>
-                <div style={{ textAlign: 'right' }}>
-                  <p style={{ margin: 0, fontSize: '1rem' }}>発行日: {new Date().toLocaleDateString('ja-JP')}</p>
+            <div style={{ padding: '25px' }}>
+              {/* --- ① 年月選択エリア（稼働中システムのUIを再現） --- */}
+              <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '20px', marginBottom: '15px' }}>
+                  <button style={circleBtn} onClick={() => setInvoiceYear(y => y - 1)}>◀</button>
+                  <span style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{invoiceYear}年</span>
+                  <button style={circleBtn} onClick={() => setInvoiceYear(y => y + 1)}>▶</button>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '8px' }}>
+                  {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => (
+                    <button 
+                      key={m} 
+                      onClick={() => setInvoiceMonth(m)}
+                      style={{
+                        padding: '10px', borderRadius: '8px', border: '1px solid #cbd5e1', cursor: 'pointer', fontWeight: 'bold',
+                        backgroundColor: invoiceMonth === m ? '#1e293b' : 'white',
+                        color: invoiceMonth === m ? 'white' : '#334155'
+                      }}
+                    >{m}月</button>
+                  ))}
                 </div>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '60px' }}>
-                <div style={{ flex: 1 }}>
-                  <h2 style={{ borderBottom: '2px solid #000', paddingBottom: '8px', fontSize: '1.5rem', display: 'inline-block', minWidth: '350px' }}>
-                    {invoiceTarget.name} 御中
-                  </h2>
-                  <p style={{ marginTop: '25px', fontSize: '1.1rem' }}>下記の通り、御請求申し上げます。</p>
-                  
-                  <div style={{ marginTop: '40px', padding: '20px 0', borderBottom: '3px double #000', borderTop: '1px solid #000' }}>
-                    <span style={{ fontSize: '1.2rem' }}>ご請求金額：</span>
-                    <span style={{ fontSize: '2.2rem', fontWeight: 'bold', marginLeft: '20px' }}>
-                      ¥ {
-                        salesRecords
-                          .filter(s => s.customer_id === invoiceTarget.id && s.sale_date?.startsWith(selectedDate.substring(0, 7)))
-                          .reduce((sum, s) => sum + Number(s.total_amount), 0)
-                          .toLocaleString()
-                      } -
-                    </span>
-                    <span style={{ fontSize: '1rem', marginLeft: '10px' }}>(税込)</span>
+              {/* --- ② プレビュー情報の集計 --- */}
+              {(() => {
+                const filteredSales = salesRecords.filter(s => {
+                  const d = new Date(s.sale_date);
+                  return s.customer_id === invoiceTarget.id && 
+                         d.getFullYear() === invoiceYear && 
+                         (d.getMonth() + 1) === invoiceMonth;
+                });
+                const total = filteredSales.reduce((sum, s) => sum + Number(s.total_amount), 0);
+
+                return (
+                  <div style={{ background: '#fff', padding: '20px', borderRadius: '15px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
+                    <p style={{ margin: '0 0 10px 0', color: '#64748b' }}>{invoiceTarget.name} 様 / {invoiceYear}年{invoiceMonth}月分</p>
+                    <div style={{ fontSize: '1.8rem', fontWeight: '900', color: '#1e293b' }}>
+                      合計金額：¥ {total.toLocaleString()} <small>(税込)</small>
+                    </div>
+                    
+                    {/* --- ③ 印刷実行ボタン（別ウィンドウ方式） --- */}
+                    <div style={{ display: 'flex', gap: '15px', justifyContent: 'center', marginTop: '25px' }}>
+                      <button 
+                        onClick={() => handlePrintInvoice('full', filteredSales)}
+                        style={{ ...completeBtnStyle, background: '#1e293b', width: 'auto', padding: '12px 25px', fontSize: '1rem' }}
+                      >
+                        📄 明細請求書を発行
+                      </button>
+                      <button 
+                        onClick={() => handlePrintInvoice('tickets', filteredSales)}
+                        style={{ ...completeBtnStyle, background: '#ed32ea', width: 'auto', padding: '12px 25px', fontSize: '1rem' }}
+                      >
+                        ✂️ 8分割領収書を発行
+                      </button>
+                    </div>
                   </div>
-                </div>
-
-                <div style={{ textAlign: 'right', minWidth: '200px', marginLeft: '40px' }}>
-                  <p style={{ fontWeight: 'bold', fontSize: '1.3rem', margin: '0 0 8px 0' }}>{shop?.business_name}</p>
-                  <p style={{ margin: '0 0 3px 0' }}>〒{shop?.zip_code || '000-0000'}</p>
-                  <p style={{ margin: '0 0 3px 0' }}>{shop?.address || '住所未設定'}</p>
-                  <p style={{ margin: 0 }}>TEL: {shop?.phone || '電話番号未設定'}</p>
-                </div>
-              </div>
-
-              <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '50px' }}>
-                <thead>
-                  <tr style={{ background: '#f2f2f2', borderTop: '2px solid #000', borderBottom: '2px solid #000' }}>
-                    <th style={{ padding: '12px', textAlign: 'left', border: '1px solid #000' }}>日付</th>
-                    <th style={{ padding: '12px', textAlign: 'left', border: '1px solid #000' }}>摘要</th>
-                    <th style={{ padding: '12px', textAlign: 'right', border: '1px solid #000' }}>人数</th>
-                    <th style={{ padding: '12px', textAlign: 'right', border: '1px solid #000' }}>金額</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {salesRecords
-                    .filter(s => s.customer_id === invoiceTarget.id && s.sale_date?.startsWith(selectedDate.substring(0, 7)))
-                    .sort((a, b) => a.sale_date.localeCompare(b.sale_date))
-                    .map((s, idx) => (
-                      <tr key={idx}>
-                        <td style={{ padding: '12px', border: '1px solid #000' }}>{s.sale_date.replace(/-/g, '/')}</td>
-                        <td style={{ padding: '12px', border: '1px solid #000' }}>施設訪問 施術代金（{invoiceTarget.name}）</td>
-                        <td style={{ padding: '12px', border: '1px solid #000', textAlign: 'right' }}>{s.details?.residents_count || 1} 名</td>
-                        <td style={{ padding: '12px', border: '1px solid #000', textAlign: 'right' }}>¥{Number(s.total_amount).toLocaleString()}</td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-
-              <div style={{ border: '1px solid #000', padding: '20px', borderRadius: '4px' }}>
-                <p style={{ margin: '0 0 8px 0', fontSize: '0.9rem', fontWeight: 'bold', textDecoration: 'underline' }}>【振込先口座】</p>
-                <p style={{ margin: '0 0 5px 0', fontSize: '1rem' }}>〇〇銀行 〇〇支店 普通 1234567</p>
-                <p style={{ margin: 0, fontSize: '1rem' }}>口座名義：{shop?.business_name}</p>
-                <p style={{ marginTop: '10px', fontSize: '0.8rem', color: '#666' }}>※ 恐れ入りますが、振込手数料は貴殿にてご負担願います。</p>
-              </div>
+                );
+              })()}
             </div>
           </div>
         </div>
       )}
 
-      {/* 🆕 印刷用スタイル定義（これ重要！） */}
+      {/* 🆕 印刷用スタイル定義（レイアウト保護版） */}
       <style>{`
         @media print {
-          /* 印刷に関係ないものを全て消す */
-          .no-print, header, nav, button, aside, [role="navigation"] {
+          /* 1. 印刷に不要な要素を「物理的に」消す（visibilityではなくdisplayを使う） */
+          .no-print, 
+          header, 
+          nav, 
+          .sidebar, 
+          button, 
+          aside,
+          [role="navigation"] {
             display: none !important;
           }
-          /* 背景色や影を印刷に反映させる */
-          * {
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
-          body {
+
+          /* 2. 画面全体の背景や固定配置をリセットして白紙にする */
+          html, body, #root {
             background: white !important;
-            margin: 0 !important;
-            padding: 0 !important;
-          }
-          /* 請求書エリアを画面一杯に広げる */
-          #invoice-print-area {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: auto;
+            height: auto !important;
             overflow: visible !important;
-            padding: 0 !important; /* ブラウザ側の余白設定に任せる */
           }
-          /* モーダル特有の装飾を消す */
-          div {
-            box-shadow: none !important;
-            border-radius: 0 !important;
+
+          /* 3. 請求書エリアの重なりを解消し、正しく配置する */
+          #invoice-print-area {
+            display: block !important; /* flexからblockに変更して安定させる */
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100% !important;
+            padding: 10mm !important; /* A4の余白 */
+            margin: 0 !important;
+            visibility: visible !important;
+          }
+
+          /* 4. 請求書内の横並び（タイトルと住所など）を印刷でも維持する */
+          #invoice-print-area div[style*="display: flex"] {
+            display: flex !important;
+            visibility: visible !important;
+          }
+
+          /* ブラウザのヘッダー・フッター（URLなど）を消す設定 */
+          @page {
+            margin: 0;
           }
         }
       `}</style>
@@ -2235,4 +2442,18 @@ const badgeStyle = (color) => ({
   marginLeft: '10px'
 });
 
+// 🆕 これをスタイル定義エリア（ファイルの末尾付近）に追加してください
+const circleBtn = { 
+  width: '44px', 
+  height: '44px', 
+  borderRadius: '50%', 
+  border: '1px solid #cbd5e1', 
+  backgroundColor: 'white', 
+  cursor: 'pointer', 
+  fontSize: '18px', 
+  display: 'flex', 
+  alignItems: 'center', 
+  justifyContent: 'center',
+  transition: 'all 0.2s'
+};
 export default AdminManagement;
