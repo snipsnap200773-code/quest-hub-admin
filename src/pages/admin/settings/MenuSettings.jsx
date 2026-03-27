@@ -56,6 +56,9 @@ const MenuSettings = () => {
   // 🆕 追加：売上対象外（レジに表示しない）設定用のState
   const [isSalesExcluded, setIsSalesExcluded] = useState(false);
 
+  // 🚀 🆕 追加：掲示用名簿（印刷物）に表示するかどうかの設定用State
+  const [showOnPrint, setShowOnPrint] = useState(false);
+
   // ✅ 🆕 差し込み：時間制限用のStateを追加
   const [useRestriction, setUseRestriction] = useState(false);
   const [timeRanges, setTimeRanges] = useState([{ start: '08:00', end: '09:00' }]);
@@ -279,7 +282,9 @@ const serviceData = {
       is_full_day: isFullDay,
       is_admin_only: isAdminOnly,
       // 🆕 修正：売上対象外フラグをデータベースへ保存
-      is_sales_excluded: isSalesExcluded 
+      is_sales_excluded: isSalesExcluded,
+      // 🚀 🆕 掲示板表示フラグをデータベースへ保存
+      show_on_print: showOnPrint
     };
 
     if (editingServiceId) await supabase.from('services').update(serviceData).eq('id', editingServiceId);
@@ -292,6 +297,7 @@ const serviceData = {
     setNewServicePrice(0); 
     setIsFullDay(false);
     setIsAdminOnly(false);
+    setShowOnPrint(false);
     fetchMenuDetails(); 
     showMsg('メニューを保存しました');
 };
@@ -813,6 +819,32 @@ const handleProdCatSubmit = async (e) => {
             </label>
           </div>
 
+          {/* 🚀 🆕 掲示用名簿フラグの追加 */}
+          <div style={{ 
+            marginBottom: '20px', 
+            padding: '15px', 
+            background: showOnPrint ? '#fffbeb' : '#fff', 
+            borderRadius: '12px', 
+            border: showOnPrint ? `2px solid #f59e0b` : '1px solid #e2e8f0' 
+          }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+              <input 
+                type="checkbox" 
+                checked={showOnPrint}
+                onChange={(e) => setShowOnPrint(e.target.checked)}
+                style={{ width: '18px', height: '18px' }}
+              />
+              <div>
+                <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: showOnPrint ? '#92400e' : '#334155' }}>
+                  【掲示用】施設に貼る名簿に「希望メニュー」として載せる
+                </span>
+                <p style={{ margin: '4px 0 0', fontSize: '0.7rem', color: '#64748b' }}>
+                  ※ONにすると、施設側で印刷する「あつまれ綺麗にしたい人」名簿に選択肢として表示されます。
+                </p>
+              </div>
+            </label>
+          </div>
+
           <div style={{ marginBottom: '20px' }}>
             <label style={{ fontSize: '0.85rem', fontWeight: 'bold', display: 'block', marginBottom: '10px', color: '#64748b' }}>
               
@@ -874,6 +906,7 @@ const handleProdCatSubmit = async (e) => {
                         setIsFullDay(s.is_full_day || false);
                         setIsAdminOnly(s.is_admin_only || false);
                         setIsSalesExcluded(s.is_sales_excluded || false);
+                        setShowOnPrint(s.show_on_print || false);
                         
                         // ✅ 🆕 差し込み：制限データの復元
                         if (s.restricted_hours) {

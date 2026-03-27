@@ -21,69 +21,80 @@ const FacilityInvoice_PC = ({ facilityId, sharedDate, setSharedDate }) => {
     const startOfMonth = `${year}-${String(month + 1).padStart(2, '0')}-01`;
     const endOfMonth = `${year}-${String(month + 1).padStart(2, '0')}-${new Date(year, month + 1, 0).getDate()}`;
 
-    // 1. 完了済みの訪問リクエストを取得
-    const { data: visits } = await supabase
-      .from('visit_requests')
+    // 🚀 1. 「完了した個人」をベースに取得。 profiles(id) と scheduled_date を確実に取り込みます
+    const { data: residents, error: rError } = await supabase
+      .from('visit_request_residents')
       .select(`
-        id, scheduled_date, shop_id,
-        profiles (id, business_name, theme_color)
+        *,
+        members(name, room, floor),
+        visit_requests!inner(scheduled_date, shop_id, profiles(id, business_name, theme_color))
       `)
-      .eq('facility_user_id', facilityId)
+      .eq('visit_requests.facility_user_id', facilityId)
       .eq('status', 'completed')
-      .gte('scheduled_date', startOfMonth)
-      .lte('scheduled_date', endOfMonth);
+      .gte('completed_at', `${startOfMonth}T00:00:00`)
+      .lte('completed_at', `${endOfMonth}T23:59:59`);
 
-    if (!visits || visits.length === 0) {
-      setData([]);
-      setLoading(false);
-      return;
+    if (!residents || residents.length === 0) {
+      setData([]); setLoading(false); return;
     }
 
-    // 2. 該当する名簿（施術記録）を取得
-    const visitIds = visits.map(v => v.id);
-    const { data: residents } = await supabase
-      .from('visit_request_residents')
-      .select('*, members(name, room)')
-      .in('visit_request_id', visitIds)
-      .eq('status', 'completed');
+    // 🚀 2. 正確な単価を出すためのマスター取得（施設専用カテゴリで絞り込み）
+    const shopIds = Array.from(new Set(residents.map(r => r.visit_requests.shop_id)));
+    const [catRes, servRes, optRes] = await Promise.all([
+      supabase.from('service_categories').select('name, is_facility_only').in('shop_id', shopIds),
+      supabase.from('services').select('*').in('shop_id', shopIds),
+      supabase.from('service_options').select('*')
+    ]);
 
-    // 3. 各店舗のメニュー価格を取得（金額計算のため）
-    const shopIds = Array.from(new Set(visits.map(v => v.shop_id)));
-    const { data: services } = await supabase
-      .from('services')
-      .select('shop_id, name, price')
-      .in('shop_id', shopIds);
+    const facilityOnlyCatNames = catRes.data?.filter(c => c.is_facility_only).map(c => c.name) || [];
+    const facilityServices = servRes.data?.filter(s => facilityOnlyCatNames.includes(s.category)) || [];
+    const options = optRes.data || [];
 
-    // 4. データを整形（業者ごとに集計）
+    // 🚀 3. データの整形
     const grouped = {};
-    visits.forEach(v => {
-      const shopId = v.shop_id;
+    residents.forEach(r => {
+      const shopId = r.visit_requests.shop_id;
+      const shopInfo = r.visit_requests.profiles; // 💡 ここに id が入るようになります
+      
       if (!grouped[shopId]) {
-        grouped[shopId] = {
-          shop: v.profiles,
-          totalAmount: 0,
-          residents: []
-        };
+        grouped[shopId] = { shop: shopInfo, totalAmount: 0, residents: [] };
       }
 
-      const dayResidents = residents.filter(r => r.visit_request_id === v.id);
-      dayResidents.forEach(r => {
-        // 価格を特定（店舗のメニュー名と一致するものを探す）
-        const service = services?.find(s => s.shop_id === shopId && s.name === r.menu_name);
-        const price = service?.price || 0;
-        
-        grouped[shopId].totalAmount += price;
-        grouped[shopId].residents.push({
-          date: v.scheduled_date,
-          name: r.members?.name,
-          room: r.members?.room,
-          menu: r.menu_name,
-          price: price
-        });
+      // --- 金額計算 ---
+      const match = r.menu_name?.match(/^(.+?)（(.+?)）$/);
+      const parentName = match ? match[1].trim() : r.menu_name?.trim();
+      const optionName = match ? match[2].trim() : null;
+
+      const service = facilityServices.find(s => s.shop_id === shopId && s.name === parentName);
+      let price = Number(service?.price) || 0;
+
+      if (optionName && service) {
+        const opt = options.find(o => o.service_id === service.id && o.option_name === optionName);
+        price += (Number(opt?.additional_price) || 0);
+      }
+      
+      // --- 🚀 🆕 日付の特定：紐付いている訪問予定日(scheduled_date)を正解にします ---
+      const actualDate = r.visit_requests.scheduled_date;
+
+      grouped[shopId].totalAmount += price;
+      grouped[shopId].residents.push({
+        id: r.id, // 🚀 🆕 ReactのKeyエラー対策
+        date: actualDate, 
+        name: r.members?.name,
+        floor: r.members?.floor,
+        room: r.members?.room,
+        menu: r.menu_name,
+        price: price
       });
     });
 
-    setData(Object.values(grouped));
+    // 最後に日付順に並び替える
+    const finalData = Object.values(grouped).map(g => ({
+      ...g,
+      residents: g.residents.sort((a, b) => a.date.localeCompare(b.date))
+    }));
+
+    setData(finalData);
     setLoading(false);
   };
 

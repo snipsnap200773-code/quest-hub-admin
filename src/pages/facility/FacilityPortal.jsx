@@ -18,6 +18,7 @@ import FacilityBooking_PC from './parts/FacilityBooking_PC';
 import FacilityStatus_PC from './parts/FacilityStatus_PC';
 import FacilityHistory_PC from './parts/FacilityHistory_PC';
 import FacilityInvoice_PC from './parts/FacilityInvoice_PC';
+import FacilityPrintList_PC from './parts/FacilityPrintList_PC';
 
 // 今後作成するパーツたちをインポートするための準備（今はコメントアウト）
 // import FacilityUserList_PC from './parts/FacilityUserList_PC';
@@ -74,8 +75,8 @@ const FacilityPortal = () => {
     { id: 'history', label: '過去の訪問記録', icon: <History size={20} />, sub: '履歴の確認' },
     { id: 'find_shops', label: '新しい業者を探す', icon: <Search size={20} />, sub: '提携先の開拓' },
     { id: 'partners', label: '提携業者', icon: <Store size={20} />, sub: '契約中のサービス' },
-    { id: 'print_list', label: '掲示用名簿をプリント', icon: <Printer size={20} />, sub: '印刷用データ' },
-    { id: 'invoice', label: '請求書をプリント', icon: <FileText size={20} />, sub: '利用明細' },
+    { id: 'print_list', label: '掲示用名簿', icon: <Printer size={20} />, sub: '印刷用データ' },
+    { id: 'invoice', label: '利用明細・精算確認', icon: <FileText size={20} />, sub: '利用明細' },
     { id: 'settings', label: '受付・通知設定', icon: <Settings size={20} />, sub: 'システム設定' },
     { id: 'manual', label: '使い方ガイド', icon: <HelpCircle size={20} />, sub: 'マニュアル' },
   ];
@@ -178,8 +179,11 @@ const FacilityPortal = () => {
 ) : activeTab === 'history' ? ( 
   /* 🚀 過去の訪問記録を表示 */
 <FacilityHistory_PC facilityId={facilityId} isMobile={isMobile} sharedDate={sharedDate} setSharedDate={setSharedDate} />
+) : activeTab === 'print_list' ? ( 
+  /* 🚀 🆕 掲示用名簿を表示（ここを追加！） */
+  <FacilityPrintList_PC facilityId={facilityId} />
 ) : activeTab === 'invoice' ? ( 
-  /* 🚀 🆕 利用明細・精算確認を表示（ここを追加！） */
+  /* 🚀 利用明細・精算確認を表示 */
   <FacilityInvoice_PC facilityId={facilityId} sharedDate={sharedDate} setSharedDate={setSharedDate} />
 ) : activeTab === 'find_shops' ? (
   <FacilityFindShops_PC facilityId={facilityId} isMobile={isMobile} />
