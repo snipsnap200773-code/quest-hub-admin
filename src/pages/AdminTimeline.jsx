@@ -424,7 +424,8 @@ const handleSavePrivateTask = async () => {
       shop_id: shopId, 
       customer_name: reason, 
       res_type: 'blocked',
-      staff_id: targetStaffId, // 🆕 選択したスタッフに紐付け
+      is_block: true, // 🚀 🆕 「これは売上ではない」という目印を追加！
+      staff_id: targetStaffId, 
       start_time: start.toISOString(), 
       end_time: end.toISOString(),
       total_slots: 1, 
@@ -451,7 +452,8 @@ const handleSavePrivateTask = async () => {
       shop_id: shopId, 
       customer_name: '臨時休業', 
       res_type: 'blocked',
-      staff_id: targetStaffId, // 🆕 選択したスタッフに紐付け
+      is_block: true, // 🚀 🆕 「これは売上ではない」という目印を追加！
+      staff_id: targetStaffId, 
       start_time: start.toISOString(), 
       end_time: end.toISOString(),
       total_slots: slotsCount, 

@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { Mail, ShieldAlert, Building2, Save, User, MapPin, Phone, ExternalLink, Send } from 'lucide-react';
+// 🚀 🆕 司令塔（マスタ）からカテゴリ情報を読み込む
+import { INDUSTRY_PRESETS } from '../../../constants/industryMaster';
 
 const FacilitySettings_PC = ({ facilityId, isMobile }) => {
   const [facility, setFacility] = useState(null);
@@ -32,6 +34,27 @@ const FacilitySettings_PC = ({ facilityId, isMobile }) => {
   const updateStatus = async (column, value) => {
     const { error } = await supabase.from('facility_users').update({ [column]: value }).eq('id', facilityId);
     if (!error) setFacility(prev => ({ ...prev, [column]: value }));
+  };
+
+  // 🚀 🆕 許可カテゴリ配列（allowed_categories）を出し入れする関数
+  const toggleCategory = async (catName, isChecked) => {
+    let currentList = facility?.allowed_categories || [];
+    let newList;
+    
+    if (isChecked) {
+      newList = [...currentList, catName]; // チェックされたら追加
+    } else {
+      newList = currentList.filter(item => item !== catName); // 外れたら削除
+    }
+
+    const { error } = await supabase
+      .from('facility_users')
+      .update({ allowed_categories: newList })
+      .eq('id', facilityId);
+
+    if (!error) {
+      setFacility(prev => ({ ...prev, allowed_categories: newList }));
+    }
   };
 
   // 🆕 提携承認・拒否の処理（お祝いメール送信機能付き）
@@ -132,12 +155,26 @@ const FacilitySettings_PC = ({ facilityId, isMobile }) => {
 
         <section style={panelStyle}>
           <h3 style={panelTitle}><ShieldAlert size={20} /> 提携申請の制限</h3>
-          {['accept_salon', 'accept_dentist', 'accept_massage'].map(col => (
-            <div key={col} style={settingRow}>
-              <span style={{fontSize: '0.9rem'}}>{col === 'accept_salon' ? '美容・理容' : col === 'accept_dentist' ? '歯科' : 'マッサージ'}</span>
-              <input type="checkbox" style={checkboxStyle} checked={facility?.[col] ?? true} onChange={(e) => updateStatus(col, e.target.checked)} />
-            </div>
-          ))}
+          {/* 🚀 🆕 マスタの「訪問サービス」のサブカテゴリをすべて表示 */}
+          {INDUSTRY_PRESETS.visiting.subCategories.map(cat => {
+            // 現在の施設データにそのカテゴリが含まれているか判定
+            // ※ カラムがまだ空(null)の場合は、デフォルトで「全許可(true)」として扱います
+            const isAllowed = facility?.allowed_categories 
+              ? facility.allowed_categories.includes(cat) 
+              : true;
+            
+            return (
+              <div key={cat} style={settingRow}>
+                <span style={{fontSize: '0.9rem'}}>{cat}</span>
+                <input 
+                  type="checkbox" 
+                  style={checkboxStyle} 
+                  checked={isAllowed} 
+                  onChange={(e) => toggleCategory(cat, e.target.checked)} 
+                />
+              </div>
+            );
+          })}
         </section>
       </div>
 

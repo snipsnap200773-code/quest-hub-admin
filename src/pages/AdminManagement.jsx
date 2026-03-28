@@ -155,6 +155,8 @@ if (profile && profile.business_name) {
         supabase.from('reservations')
           .select('*, staffs(name)')
           .eq('shop_id', cleanShopId)
+          // 🚀 🆕 ブロック用フラグが true ではない（お客様の予約のみ）を取得
+          .or('is_block.is.null,is_block.eq.false') 
           .order('start_time', { ascending: true }),
         // ✅ エイリアス facility_data を使い、外部キー facility_user_id 経由で取得を安定させる
         supabase.from('visit_requests')
@@ -665,7 +667,10 @@ const completePayment = async () => {
   }));
 
   // 1️⃣ ✅ 対象データを個人・施設の両方に広げる
-  const validTasks = allReservations.filter(r => r.task_type === 'individual' || r.task_type === 'facility');
+  const validTasks = allReservations.filter(r => 
+    (r.task_type === 'individual' || r.task_type === 'facility') && 
+    r.is_block !== true // 🚀 🆕 ここで名前ではなく「フラグ」で弾く
+  );
   const validResIds = new Set(validTasks.filter(r => r.task_type === 'individual').map(r => r.id));
   const validVisitIds = new Set(validTasks.filter(r => r.task_type === 'facility').map(r => r.id));
 
@@ -1555,8 +1560,10 @@ return (
                 gap: '15px' 
               }}>
                 {allCustomers
-                  .filter(c => (c.name || '').includes(searchTerm) || (c.phone || '').includes(searchTerm))
-                  .map(cust => {
+  // 🚀 🆕 ブロック用の名前（臨時休業、管理者ブロック）を持つ顧客は名簿に表示しない
+  .filter(c => !['臨時休業', '管理者ブロック'].includes(c.name)) 
+  .filter(c => (c.name || '').includes(searchTerm) || (c.phone || '').includes(searchTerm))
+  .map(cust => {
                     // 🆕 修正：ここでお客様ごとの「完了済み予約」をリアルタイムに計算します
                     const realVisitCount = allReservations.filter(r => 
   (r.customer_name === cust.name || r.customer_id === cust.id) && 

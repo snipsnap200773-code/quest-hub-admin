@@ -66,20 +66,54 @@ const FacilityPortal = () => {
   };
 
   // サイドバーのメニュー構成
-  const menuItems = [
-    { id: 'residents', label: 'あつまれ綺麗にする人', icon: <Users size={20} />, sub: '入居者名簿' },
-    { id: 'keep', label: 'キープ！この日とった！', icon: <CalendarPlus size={20} />, sub: '訪問日の確保' },
-    { id: 'list-up', label: 'リストアップしよう！', icon: <ListChecks size={20} />, sub: '利用者様選択' },
-    { id: 'booking', label: 'これで決まり！予約確定！', icon: <CheckSquare size={20} />, sub: '予約の実行' },
-    { id: 'status', label: '予約状況・進捗管理', icon: <Clock size={20} />, sub: '現在のステータス' },
-    { id: 'history', label: '過去の訪問記録', icon: <History size={20} />, sub: '履歴の確認' },
-    { id: 'find_shops', label: '新しい業者を探す', icon: <Search size={20} />, sub: '提携先の開拓' },
-    { id: 'partners', label: '提携業者', icon: <Store size={20} />, sub: '契約中のサービス' },
-    { id: 'print_list', label: '掲示用名簿', icon: <Printer size={20} />, sub: '印刷用データ' },
-    { id: 'invoice', label: '利用明細・精算確認', icon: <FileText size={20} />, sub: '利用明細' },
-    { id: 'settings', label: '受付・通知設定', icon: <Settings size={20} />, sub: 'システム設定' },
-    { id: 'manual', label: '使い方ガイド', icon: <HelpCircle size={20} />, sub: 'マニュアル' },
+  // 🚀 🆕 役割ごとにグループ化
+  const menuGroups = [
+    {
+      groupName: '基礎管理',
+      items: [{ id: 'residents', label: 'あつまれ綺麗にする人', icon: <Users size={20} />, sub: '入居者名簿' }]
+    },
+    {
+      groupName: '予約の3ステップ',
+      isFlow: true,
+      items: [
+        { id: 'keep', label: 'キープ！この日とった！', icon: <CalendarPlus size={20} />, sub: 'STEP 1: 日程確保' },
+        { id: 'list-up', label: 'リストアップしよう！', icon: <ListChecks size={20} />, sub: 'STEP 2: 利用者選択' },
+        { id: 'booking', label: 'これで決まり！予約確定！', icon: <CheckSquare size={20} />, sub: 'STEP 3: 予約実行' },
+      ]
+    },
+    {
+      groupName: '運用・記録',
+      items: [
+        { id: 'status', label: '予約状況・進捗管理', icon: <Clock size={20} />, sub: '現在のステータス' },
+        { id: 'history', label: '過去の訪問記録', icon: <History size={20} />, sub: '履歴の確認' },
+      ]
+    },
+    {
+      groupName: '帳票・精算',
+      items: [
+        { id: 'print_list', label: '掲示用名簿', icon: <Printer size={20} />, sub: '印刷用データ' },
+        { id: 'invoice', label: '利用明細・精算確認', icon: <FileText size={20} />, sub: '利用明細' },
+      ]
+    },
+    {
+      groupName: '業者管理',
+      items: [
+        { id: 'partners', label: '提携業者', icon: <Store size={20} />, sub: '契約中のサービス' },
+        { id: 'find_shops', label: '新しい業者を探す', icon: <Search size={20} />, sub: '提携先の開拓' },
+      ]
+    },
+    {
+      groupName: 'システム',
+      items: [
+        { id: 'settings', label: '受付・通知設定', icon: <Settings size={20} />, sub: 'システム設定' },
+        { id: 'manual', label: '使い方ガイド', icon: <HelpCircle size={20} />, sub: 'マニュアル' },
+      ]
+    }
   ];
+
+  // 🚀 🆕 【ここに追加！】 
+  // menuGroups から全アイテムを取り出して、ヘッダー表示用の menuItems を作成します
+  const menuItems = menuGroups.flatMap(group => group.items);
 
   if (loading) return <div style={centerStyle}>読み込み中...</div>;
 
@@ -111,21 +145,36 @@ const FacilityPortal = () => {
         </div>
 
         <nav style={navAreaStyle}>
-          {menuItems.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => {
-                setActiveTab(item.id);
-                if (isMobile) setIsMenuOpen(false); // スマホ時はタップ後にメニューを閉じる
-              }}
-              style={sidebarBtnStyle(activeTab === item.id)}
-            >
-              <span style={btnIconStyle(activeTab === item.id)}>{item.icon}</span>
-              <div style={btnTextWrapper}>
-                <span style={btnMainLabel}>{item.label}</span>
-                <span style={btnSubLabel(activeTab === item.id)}>{item.sub}</span>
+          {menuGroups.map((group, gIdx) => (
+            <div key={gIdx} style={groupWrapperStyle(group.isFlow)}>
+              {/* グループタイトル（薄く表示） */}
+              <div style={groupTitleStyle}>{group.groupName}</div>
+              
+              <div style={groupItemsContainer(group.isFlow)}>
+                {group.items.map((item, iIdx) => (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      setActiveTab(item.id);
+                      if (isMobile) setIsMenuOpen(false);
+                    }}
+                    style={sidebarBtnStyle(activeTab === item.id)}
+                  >
+                    {/* 🚀 予約フローの時だけ数字バッジを出す、それ以外はアイコン */}
+                    {group.isFlow ? (
+                      <span style={stepNumberStyle(activeTab === item.id)}>{iIdx + 1}</span>
+                    ) : (
+                      <span style={btnIconStyle(activeTab === item.id)}>{item.icon}</span>
+                    )}
+
+                    <div style={btnTextWrapper}>
+                      <span style={btnMainLabel}>{item.label}</span>
+                      <span style={btnSubLabel(activeTab === item.id)}>{item.sub}</span>
+                    </div>
+                  </button>
+                ))}
               </div>
-            </button>
+            </div>
           ))}
         </nav>
 
@@ -233,12 +282,57 @@ const welcomeBoxStyle = { background: 'rgba(0,0,0,0.2)', padding: '15px', border
 const welcomeLabel = { margin: 0, fontSize: '0.65rem', color: '#948b83', textTransform: 'uppercase' };
 const facilityNameDisplay = { margin: '2px 0 0', fontSize: '1rem', fontWeight: 'bold', color: '#fff' };
 
-const navAreaStyle = { flex: 1, padding: '20px 12px', display: 'flex', flexDirection: 'column', gap: '4px', overflowY: 'auto' };
+// 🚀 🆕 ナビゲーションエリア（全体の余白調整）
+const navAreaStyle = { flex: 1, padding: '15px 12px', display: 'flex', flexDirection: 'column', gap: '20px', overflowY: 'auto' };
 
+// 🚀 🆕 グループごとの外枠
+const groupWrapperStyle = (isFlow) => ({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '8px'
+});
+
+// 🚀 🆕 グループの見出しテキスト
+const groupTitleStyle = {
+  fontSize: '0.6rem',
+  color: '#948b83',
+  fontWeight: '900',
+  letterSpacing: '1px',
+  paddingLeft: '15px',
+  textTransform: 'uppercase'
+};
+
+// 🚀 🆕 アイテムをまとめるコンテナ（予約フローなら背景を少し変える）
+const groupItemsContainer = (isFlow) => ({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '4px',
+  background: isFlow ? 'rgba(197, 160, 89, 0.05)' : 'transparent', // 💡 フローを薄い金色の背景で囲う
+  padding: isFlow ? '10px 5px' : '0',
+  borderRadius: '15px',
+  border: isFlow ? '1px dashed rgba(197, 160, 89, 0.2)' : 'none'
+});
+
+// 🚀 🆕 ステップ番号（1, 2, 3）のデザイン
+const stepNumberStyle = (active) => ({
+  width: '20px',
+  height: '20px',
+  borderRadius: '50%',
+  background: active ? '#3d2b1f' : '#c5a059',
+  color: active ? '#c5a059' : '#3d2b1f',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontSize: '0.7rem',
+  fontWeight: '900'
+});
+
+// 💡 既存の sidebarBtnStyle に minHeight を足すと押しやすくなります
 const sidebarBtnStyle = (active) => ({
-  display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 15px', borderRadius: '10px',
+  display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 15px', borderRadius: '10px',
   background: active ? '#c5a059' : 'transparent', color: active ? '#3d2b1f' : '#d1c7be',
-  border: 'none', cursor: 'pointer', transition: '0.2s', width: '100%', textAlign: 'left'
+  border: 'none', cursor: 'pointer', transition: '0.2s', width: '100%', textAlign: 'left',
+  minHeight: '44px' 
 });
 
 const btnIconStyle = (active) => ({ color: active ? '#3d2b1f' : '#c5a059', display: 'flex', alignItems: 'center' });
@@ -260,7 +354,8 @@ const getMainAreaStyle = (isMobile) => ({
   display: 'flex', 
   flexDirection: 'column',
   paddingTop: isMobile ? '60px' : '0',
-  alignItems: 'center', // 🆕 PC版でコンテンツを中央に寄せる
+  // alignItems: 'center' ← ❌ これを削除または 'flex-start' にします
+  alignItems: 'flex-start', 
 });
 
 const contentHeaderStyle = { width: '100%', padding: '30px 50px', background: '#fff', borderBottom: '1px solid #eee', boxSizing: 'border-box' };
@@ -273,8 +368,7 @@ const headerSubTitle = { margin: '2px 0 0', fontSize: '0.8rem', color: '#999' };
 const contentBodyStyle = (isMobile) => ({ 
   padding: isMobile ? '20px 15px' : '40px 50px', 
   width: '100%',
-  maxWidth: '1000px', // 🆕 横に広がりすぎないように制限
-  flex: 1,
+  maxWidth: isMobile ? '100%' : '1200px', // 💡 900pxから1200pxに拡大！
   boxSizing: 'border-box'
 });
 const placeholderCardStyle = { 

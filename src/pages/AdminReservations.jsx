@@ -957,13 +957,14 @@ const getStatusAt = (dateStr, timeStr) => {
 const insertData = {
   shop_id: shopId, 
   customer_name: reason, 
-  res_type: 'blocked', // 👈 SQLで追加したカラム
+  res_type: 'blocked',
+  is_block: true, // 🚀 🆕 「これは予約枠のブロックです」という印を付ける
   start_time: start.toISOString(), 
   end_time: end.toISOString(),
   total_slots: 1, 
   customer_email: null, 
   customer_phone: '---', 
-  options: { type: 'admin_block' } // 👈 SQLで追加したカラム
+  options: { type: 'admin_block' }
 };
     
     const { error } = await supabase.from('reservations').insert([insertData]);
@@ -984,10 +985,17 @@ const insertData = {
     const totalMinutes = (ch * 60 + cm) - (oh * 60 + om);
     const slotsCount = Math.ceil(totalMinutes / interval);
     const insertData = {
-      shop_id: shopId, customer_name: '臨時休業', res_type: 'blocked',
-      start_at: start.toISOString(), end_at: end.toISOString(),
-      start_time: start.toISOString(), end_time: end.toISOString(),
-      total_slots: slotsCount, customer_email: null, customer_phone: '---',
+      shop_id: shopId, 
+      customer_name: '臨時休業', 
+      res_type: 'blocked',
+      is_block: true, // 🚀 🆕 「これは予約枠のブロックです」という印を付ける
+      start_at: start.toISOString(), 
+      end_at: end.toISOString(),
+      start_time: start.toISOString(), 
+      end_time: end.toISOString(),
+      total_slots: slotsCount, 
+      customer_email: null, 
+      customer_phone: '---',
       options: { services: [], isFullDay: true }
     };
     const { error } = await supabase.from('reservations').insert([insertData]);

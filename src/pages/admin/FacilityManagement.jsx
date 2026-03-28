@@ -1,3 +1,4 @@
+import { INDUSTRY_PRESETS } from '../../constants/industryMaster';
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../../supabaseClient'; 
@@ -5,7 +6,7 @@ import {
   Building2, Plus, MapPin, Calendar, Users, 
   ChevronRight, X, Save, User, ArrowLeft, Phone, Mail, Trash2, Edit3, Clock, Copy, Link2,
   Search, AlertCircle,
-  ArrowRight, CheckCircle2, Send, Filter
+  ArrowRight, CheckCircle2, Send, Filter, Store
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -29,6 +30,8 @@ const FacilityManagement = () => {
   const [loading, setLoading] = useState(true);
   const [shopSettings, setShopSettings] = useState({ 
     email_notifications_enabled: true,
+    is_facility_searchable: false, // 🚀 追加：検索に出るか
+    sub_business_type: '理美容',    // 🚀 追加：ジャンル
     bank_name: '',
     bank_branch: '',
     bank_account_type: '普通',
@@ -38,6 +41,7 @@ const FacilityManagement = () => {
   const [isUpdating, setIsUpdating] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const visitingSubCategories = INDUSTRY_PRESETS.visiting.subCategories;
 
   // フォームState（既存システムをベースに tenant_id を追加）
   const [formData, setFormData] = useState({ 
@@ -61,7 +65,7 @@ const FacilityManagement = () => {
     // ✅ 修正：振込先情報も一緒に取得するように変更
     const { data: profile } = await supabase
       .from('profiles')
-      .select('email_notifications_enabled, bank_name, bank_branch, bank_account_type, bank_account_number, bank_account_holder')
+      .select('email_notifications_enabled, is_facility_searchable, sub_business_type, bank_name, bank_branch, bank_account_type, bank_account_number, bank_account_holder')
       .eq('id', shopId)
       .single();
     
@@ -265,12 +269,14 @@ const handleSave = async (e) => {
 
   // 🆕 ここから差し込む！！ ==========================================
   // 振込先情報を一括で更新（保存）する関数
-  const saveBankSettings = async () => {
+  const saveShopGlobalSettings = async () => { // 🚀 名前を広義に変更
     setIsUpdating(true);
     try {
       const { error } = await supabase
         .from('profiles')
         .update({ 
+          is_facility_searchable: shopSettings.is_facility_searchable, // 🚀 追加
+          sub_business_type: shopSettings.sub_business_type,          // 🚀 追加
           bank_name: shopSettings.bank_name,
           bank_branch: shopSettings.bank_branch,
           bank_account_type: shopSettings.bank_account_type,
@@ -280,10 +286,9 @@ const handleSave = async (e) => {
         .eq('id', shopId);
 
       if (error) throw error;
-      alert('振込先情報を更新しました！✨');
+      alert('ショップ設定を更新しました！✨');
     } catch (err) {
-      console.error("Save Bank Error:", err);
-      alert('更新に失敗しました: ' + err.message);
+      alert('失敗: ' + err.message);
     } finally {
       setIsUpdating(false);
     }
@@ -352,41 +357,58 @@ const handleSave = async (e) => {
       {/* 🆕 店舗側の通知設定パネルを追加 */}
       {/* 🆕 振込先設定パネルを追加 */}
       {!loading && (
-        <div style={{ ...cardStyle, marginBottom: '30px', padding: '25px', background: '#fff' }}>
+        <div style={{ ...cardStyle, marginBottom: '30px', padding: '25px', background: '#fff', border: '2px solid #e0e7ff' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px', borderBottom: '2px solid #f1f5f9', paddingBottom: '15px' }}>
-            <div style={{ ...iconBoxStyle('#10b981'), marginBottom: 0, width: '40px', height: '40px' }}>
-              <CheckCircle2 size={20} />
-            </div>
-            <h3 style={{ margin: 0, fontSize: '1rem', color: '#1e293b' }}>請求書のお振込先設定</h3>
+            <div style={iconBoxStyle('#4f46e5')}><Store size={20} /></div>
+            <h3 style={{ margin: 0, fontSize: '1rem', color: '#1e293b' }}>基本設定（検索公開・振込先）</h3>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px' }}>
-            <label style={labelStyle}>銀行名
-              <input type="text" value={shopSettings.bank_name || ''} onChange={(e) => setShopSettings({...shopSettings, bank_name: e.target.value})} placeholder="例：三菱UFJ銀行" style={inputStyle} />
-            </label>
-            <label style={labelStyle}>支店名
-              <input type="text" value={shopSettings.bank_branch || ''} onChange={(e) => setShopSettings({...shopSettings, bank_branch: e.target.value})} placeholder="例：中山支店" style={inputStyle} />
-            </label>
-            <label style={labelStyle}>種別
-              <select value={shopSettings.bank_account_type || '普通'} onChange={(e) => setShopSettings({...shopSettings, bank_account_type: e.target.value})} style={inputStyle}>
-                <option value="普通">普通</option>
-                <option value="当座">当座</option>
-              </select>
-            </label>
-            <label style={labelStyle}>口座番号
-              <input type="text" value={shopSettings.bank_account_number || ''} onChange={(e) => setShopSettings({...shopSettings, bank_account_number: e.target.value})} placeholder="例：1234567" style={inputStyle} />
-            </label>
-            <label style={{ ...labelStyle, gridColumn: '1 / -1' }}>口座名義（カナ）
-              <input type="text" value={shopSettings.bank_account_holder || ''} onChange={(e) => setShopSettings({...shopSettings, bank_account_holder: e.target.value})} placeholder="例：ミドテ ダイゾウ" style={inputStyle} />
-            </label>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '30px' }}>
+            
+            {/* 🆕 左側：公開設定エリア */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+               <div style={settingRow}>
+                  <div>
+                    <div style={{fontWeight:'bold', fontSize:'0.9rem'}}>施設検索への公開</div>
+                    <div style={{fontSize:'0.7rem', color:'#64748b'}}>施設側で検索・リクエストが可能になります</div>
+                  </div>
+                  {/* スイッチボタン */}
+                  <button 
+                    onClick={() => setShopSettings({...shopSettings, is_facility_searchable: !shopSettings.is_facility_searchable})}
+                    style={toggleBtnStyle(shopSettings.is_facility_searchable)}
+                  >
+                    {shopSettings.is_facility_searchable ? '公開中' : '非公開'}
+                  </button>
+               </div>
+
+               <label style={labelStyle}>施設向け専門ジャンル
+                  <select 
+                    value={shopSettings.sub_business_type} 
+                    onChange={(e) => setShopSettings({...shopSettings, sub_business_type: e.target.value})}
+                    style={inputStyle}
+                  >
+                    {visitingSubCategories.map(sub => (
+                      <option key={sub} value={sub}>{sub}</option>
+                    ))}
+                  </select>
+               </label>
+            </div>
+
+            {/* 右側：振込先エリア */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <label style={labelStyle}>銀行名<input type="text" value={shopSettings.bank_name || ''} onChange={(e) => setShopSettings({...shopSettings, bank_name: e.target.value})} style={inputStyle} /></label>
+              <label style={labelStyle}>支店名<input type="text" value={shopSettings.bank_branch || ''} onChange={(e) => setShopSettings({...shopSettings, bank_branch: e.target.value})} style={inputStyle} /></label>
+              <label style={labelStyle}>口座番号<input type="text" value={shopSettings.bank_account_number || ''} onChange={(e) => setShopSettings({...shopSettings, bank_account_number: e.target.value})} style={inputStyle} /></label>
+              <label style={{ ...labelStyle, gridColumn: '1 / -1' }}>名義(カナ)<input type="text" value={shopSettings.bank_account_holder || ''} onChange={(e) => setShopSettings({...shopSettings, bank_account_holder: e.target.value})} style={inputStyle} /></label>
+            </div>
           </div>
           
           <button 
-            onClick={saveBankSettings} 
-            disabled={isUpdating}
+  onClick={saveShopGlobalSettings} // ✅ この名前に修正！
+  disabled={isUpdating}
             style={{ ...addBtnStyle, width: '100%', marginTop: '20px', background: '#1e293b', justifyContent: 'center' }}
           >
-            {isUpdating ? '保存中...' : '振込先情報を保存する'}
+            {isUpdating ? '保存中...' : '基本設定をすべて保存する'}
           </button>
         </div>
       )}
@@ -739,5 +761,6 @@ const sliderStyle = {
   transition: '.3s', 
   borderRadius: '24px' 
 };
-
+const settingRow = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '15px', borderRadius: '15px', border: '1px solid #eef2ff' };
+const toggleBtnStyle = (active) => ({ padding: '8px 20px', borderRadius: '20px', border: 'none', fontWeight: '900', cursor: 'pointer', background: active ? '#10b981' : '#cbd5e1', color: '#fff', fontSize: '0.8rem', transition: '0.3s' });
 export default FacilityManagement;

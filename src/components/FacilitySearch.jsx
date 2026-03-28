@@ -27,21 +27,29 @@ const FacilitySearch = () => {
   }, [shopId]);
 
   const fetchInitialData = async () => {
-    setLoading(true);
-    // 1. 店舗情報（自分の業種）を取得
-    const { data: pData } = await supabase.from('profiles').select('*').eq('id', shopId).single();
-    setMyProfile(pData);
+    setLoading(true);
+    // 1. 店舗情報（自分のサブ業種を含む）を取得
+    const { data: pData } = await supabase.from('profiles').select('*').eq('id', shopId).single();
+    setMyProfile(pData);
 
-    // 2. 既に申請・提携済みのリストを取得
-    const { data: cData } = await supabase.from('shop_facility_connections').select('*').eq('shop_id', shopId);
-    setConnections(cData || []);
+    // 2. 既に申請・提携済みのリストを取得
+    const { data: cData } = await supabase.from('shop_facility_connections').select('*').eq('shop_id', shopId);
+    setConnections(cData || []);
 
-    // 3. 全施設を取得
-    const { data: fData } = await supabase.from('facility_users').select('*').order('facility_name', { ascending: true });
-    setFacilities(fData || []);
+    // 3. 施設を取得（自分を制限していない施設のみ）
+    // 🚀 🆕 自分のカテゴリが 施設側の allowed_categories（制限リスト）に含まれていないものを抽出
+    let query = supabase.from('facility_users').select('*').order('facility_name', { ascending: true });
     
-    setLoading(false);
-  };
+    if (pData?.sub_business_type) {
+      // 🚀 🆕 allowed_categories（配列）の中に自分の業種が「含まれていない(not contains)」施設を探す
+      query = query.not('allowed_categories', 'cs', `{"${pData.sub_business_type}"}`);
+    }
+
+    const { data: fData } = await query;
+    setFacilities(fData || []);
+    
+    setLoading(false);
+  };
 
   // 提携リクエスト送信
   const sendRequest = async (facility) => { // 🆕 引数を施設オブジェクトに変更
@@ -90,27 +98,15 @@ const FacilitySearch = () => {
 
   // 🔍 industryMasterに基づいたフィルタリングロジック
   const filteredFacilities = facilities.filter(f => {
-    const matchSearch = f.facility_name.includes(searchTerm);
-    
-    // 業種による受付判定
-    let isAccepting = true;
-    const myType = myProfile?.business_type;
+    // 検索ワードに一致するか
+    const matchSearch = f.facility_name.includes(searchTerm);
+    
+    // 🚀 🆕 施設側の拒否設定（allowed_categories）に自分の業種が含まれて「いない」かチェック
+    // ※ DB取得時にフィルタしていますが、念のためUI側でもチェックします。
+    const isRestricted = f.allowed_categories?.includes(myProfile?.sub_business_type);
 
-    // 1. 理美容系（訪問・店舗両方）
-    if (myType === INDUSTRY_PRESETS.visiting.label || myType === INDUSTRY_PRESETS.beauty.label) {
-      isAccepting = f.accept_salon;
-    } 
-    // 2. 歯科系（小カテゴリに含まれる場合も考慮）
-    else if (myType?.includes('歯科')) {
-      isAccepting = f.accept_dentist;
-    }
-    // 3. マッサージ・整体系
-    else if (myType === INDUSTRY_PRESETS.clinic.label || myType?.includes('マッサージ')) {
-      isAccepting = f.accept_massage;
-    }
-
-    return matchSearch && isAccepting;
-  });
+    return matchSearch && !isRestricted;
+  });
 
   if (loading) return <div style={centerStyle}>募集中の施設を探しています...</div>;
 

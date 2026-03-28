@@ -266,7 +266,7 @@ const FacilityBooking_PC = ({ facilityId, setActiveTab, sharedDate }) => {
 };
 
 // スタイル定義は変更なし
-const containerStyle = { maxWidth: '800px', margin: '0 auto', padding: '20px' };
+const containerStyle = { width: '100%', margin: '0 auto', padding: '0' };
 const backBtn = { background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '20px', fontWeight: 'bold' };
 const summaryCard = { background: '#fff', borderRadius: '30px', padding: '40px', border: '1px solid #eee', boxShadow: '0 15px 40px rgba(0,0,0,0.05)' };
 const title = { display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1.8rem', margin: '0 0 10px 0', color: '#3d2b1f', fontWeight: '900' };

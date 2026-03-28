@@ -141,6 +141,8 @@ const fetchTodayTasks = async () => {
       .eq('shop_id', shopId)
       .gte('start_time', `${dateStr} 00:00:00`)
       .lte('start_time', `${dateStr} 23:59:59`)
+      // 🚀 🆕 ブロック用フラグが true ではない（お客様の予約のみ）を取得
+      .or('is_block.is.null,is_block.eq.false') 
       .eq('res_type', 'normal');
 
     if (resError) throw resError;
@@ -182,10 +184,11 @@ const fetchTodayTasks = async () => {
       .from('reservations')
       .select('start_time')
       .eq('shop_id', shopId)
-      .neq('status', 'completed') // 完了していない
-      .lt('start_time', `${todayStr} 00:00:00`) // 今日より前の日付
-      .order('start_time', { ascending: true }) // 一番古い順
-      .limit(1);
+      .neq('status', 'completed')
+      .lt('start_time', `${todayStr} 00:00:00`)
+      // 🚀 🆕 ブロック用（is_block: true）はアラートの対象にしない
+      .or('is_block.is.null,is_block.eq.false') 
+      .eq('res_type', 'normal') // 通常予約のみを対象にする
 
     if (incomplete && incomplete.length > 0) {
       setOldestIncompleteDate(incomplete[0].start_time.split('T')[0]);

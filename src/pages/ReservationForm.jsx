@@ -170,8 +170,14 @@ let catQuery = supabase.from('service_categories')
           }
         }
 
-        const servRes = await supabase.from('services').select('*').eq('shop_id', shopId).order('sort_order');
-        if (servRes.data) setServices(servRes.data);
+        const servRes = await supabase
+  .from('services')
+  .select('*')
+  .eq('shop_id', shopId)
+  .or('show_on_print.is.null,show_on_print.eq.false') // ✅ false または null のものを取得
+  .order('sort_order');
+
+if (servRes.data) setServices(servRes.data);
 const optRes = await supabase.from('service_options').select('*');
         if (optRes.data) setOptions(optRes.data);
 
@@ -596,8 +602,14 @@ const handleNextStep = () => {
           {people.length === 0 ? "メニューを選択" : `${people.length + 1}人目のメニューを選択`}
         </h3>
         
-        {categories.map((cat, idx) => {
-          const isDisabled = disabledCategoryNames.includes(cat.name);
+        {categories
+          .filter(cat => {
+            // 🚀 🆕 そのカテゴリの中に「掲示用ではない（!s.show_on_print）」メニューが
+            // 1つでも存在する場合のみ、このカテゴリを表示リストに残します。
+            return services.some(s => s.category === cat.name && !s.show_on_print);
+          })
+          .map((cat, idx) => { // ⬅️ 絞り込んだ後のリストで表示を開始
+            const isDisabled = disabledCategoryNames.includes(cat.name);
           return (
             <div key={cat.id} ref={el => categoryRefs.current[cat.id] = el} style={{ marginBottom: '35px', opacity: isDisabled ? 0.3 : 1 }}>
               <h4 style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '12px', lineHeight: '1.4' }}>
@@ -609,16 +621,16 @@ const handleNextStep = () => {
                 ))}
               </h4>
               <div style={{ display: 'grid', gap: '10px' }}>
-                {services
+{services
   .filter(s => s.category === cat.name)
-  // 🆕 ここに管理者専用メニューの表示フィルターを追加
   .filter(service => {
-    // 管理者モード（ねじ込み）なら、全てのメニューを表示する
+    // 🚀 🆕 掲示用メニュー（show_on_print）は、管理者モードであっても表示しない
+    if (service.show_on_print) return false; 
+
     if (isAdminMode) return true;
-    // 一般ユーザーモードなら、is_admin_only が true のメニューを除外する
     return !service.is_admin_only;
   })
-  .map(service => {
+    .map(service => {
     const isSelected = selectedServices.find(s => s.id === service.id);
     const groupedOpts = getGroupedOptions(service.id);
     return (

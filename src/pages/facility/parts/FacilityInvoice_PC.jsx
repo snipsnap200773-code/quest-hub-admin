@@ -238,7 +238,7 @@ const FacilityInvoice_PC = ({ facilityId, sharedDate, setSharedDate }) => {
 };
 
 // --- スタイル定義 ---
-const containerStyle = { maxWidth: '1000px', margin: '0 auto', padding: '20px' };
+const containerStyle = { width: '100%', margin: '0 auto', padding: '0' };
 const headerArea = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' };
 const titleGroup = { flex: 1 };
 const titleStyle = { display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1.6rem', fontWeight: '900', color: '#3d2b1f', margin: 0 };
