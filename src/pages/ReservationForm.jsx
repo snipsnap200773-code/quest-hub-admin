@@ -505,7 +505,7 @@ const handleNextStep = () => {
         <h2 style={{ margin: '0 0 10px 0', fontSize: '1.4rem' }}>{displayBranding.name}</h2>
 
         {/* 🚗 訪問型住所入力エリア */}
-        {isVisitService && (
+        {isVisitService && !isAdminMode && (
           <div style={{ marginBottom: '25px', padding: '20px', background: isAddressFixed ? '#f8fafc' : '#fff', borderRadius: '16px', border: isAddressFixed ? '1px solid #e2e8f0' : `2px solid ${themeColor}`, boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
             <h3 style={{ marginTop: 0, fontSize: '1rem', marginBottom: '15px', color: themeColor, display: 'flex', alignItems: 'center', gap: '8px' }}>
               <MapPin size={20} /> 1. 訪問先の住所を入力
@@ -530,7 +530,21 @@ const handleNextStep = () => {
                   placeholder="市区町村・番地・建物名まで入力してください" 
                   style={{ width: '100%', padding: '14px', borderRadius: '10px', border: '1px solid #ddd', fontSize: '1rem', marginBottom: '12px', boxSizing: 'border-box' }} 
                 />
-                <button disabled={!visitorAddress} onClick={() => setIsAddressFixed(true)} style={{ width: '100%', padding: '14px', background: visitorAddress ? themeColor : '#cbd5e1', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>この場所で空き枠を探す</button>
+<button 
+  // 🚀 🆕 1.末尾が数字 2.ハイフンあり 3.丁目/番地/号/の が含まれる かをチェック
+  disabled={!visitorAddress || !(/[0-9０-９一二三四五六七八九十]$|[\-\－]|丁目|番地|号|の[一二三四五六七八九十]/.test(visitorAddress))} 
+  onClick={() => setIsAddressFixed(true)} 
+  style={{ 
+    width: '100%', padding: '14px', 
+    // 判定ロジックを共通化
+    background: (visitorAddress && /[0-9０-９一二三四五六七八九十]$|[\-\－]|丁目|番地|号|の[一二三四五六七八九十]/.test(visitorAddress)) ? themeColor : '#cbd5e1', 
+    color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' 
+  }}
+>
+  {!visitorAddress ? '住所を入力してください' 
+   : !(/[0-9０-９一二三四五六七八九十]$|[\-\－]|丁目|番地|号|の[一二三四五六七八九十]/.test(visitorAddress)) ? '番地まで入力してください' 
+   : 'この場所で空き枠を探す'}
+</button>
               </>
             ) : (
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -585,6 +599,7 @@ const handleNextStep = () => {
           </div>
         )}
         
+        {/* --- 店舗説明文 --- */}
         {displayBranding.desc && (
           <p style={{ fontSize: '0.9rem', color: '#475569', lineHeight: '1.6' }}>
             {displayBranding.desc.split('/').map((line, idx) => (
@@ -597,139 +612,169 @@ const handleNextStep = () => {
         )}
       </div>
 
-      <div>
-        <h3 style={{ fontSize: '1rem', borderLeft: `4px solid ${themeColor}`, paddingLeft: '10px', marginBottom: '20px' }}>
-          {people.length === 0 ? "メニューを選択" : `${people.length + 1}人目のメニューを選択`}
-        </h3>
-        
-        {categories
-          .filter(cat => {
-            // 🚀 🆕 そのカテゴリの中に「掲示用ではない（!s.show_on_print）」メニューが
-            // 1つでも存在する場合のみ、このカテゴリを表示リストに残します。
-            return services.some(s => s.category === cat.name && !s.show_on_print);
-          })
-          .map((cat, idx) => { // ⬅️ 絞り込んだ後のリストで表示を開始
-            const isDisabled = disabledCategoryNames.includes(cat.name);
-          return (
-            <div key={cat.id} ref={el => categoryRefs.current[cat.id] = el} style={{ marginBottom: '35px', opacity: isDisabled ? 0.3 : 1 }}>
-              <h4 style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '12px', lineHeight: '1.4' }}>
-                {cat.name.split('/').map((text, i) => (
-                  <React.Fragment key={i}>
-                    {text.trim()}
-                    {i < cat.name.split('/').length - 1 && <br />}
-                  </React.Fragment>
-                ))}
-              </h4>
-              <div style={{ display: 'grid', gap: '10px' }}>
-{services
-  .filter(s => s.category === cat.name)
-  .filter(service => {
-    // 🚀 🆕 掲示用メニュー（show_on_print）は、管理者モードであっても表示しない
-    if (service.show_on_print) return false; 
-
-    if (isAdminMode) return true;
-    return !service.is_admin_only;
-  })
-    .map(service => {
-    const isSelected = selectedServices.find(s => s.id === service.id);
-    const groupedOpts = getGroupedOptions(service.id);
-    return (
-      <div key={service.id} ref={el => serviceRefs.current[service.id] = el} 
-           style={{ border: isSelected ? `2px solid ${themeColor}` : '1px solid #ddd', borderRadius: '12px', background: 'white' }}>
-                      <button disabled={isDisabled} onClick={() => toggleService(service, idx)} style={{ width: '100%', padding: '15px', border: 'none', background: 'none', textAlign: 'left' }}>
-                        <div style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <div style={{ 
-                            width: '18px', height: '18px', border: `2px solid ${themeColor}`, 
-                            borderRadius: cat.allow_multiple_in_category ? '4px' : '50%', 
-                            background: isSelected ? themeColor : 'transparent', 
-                            display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white' 
-                          }}>{isSelected && '✓'}</div>
-                          <span>{service.name}</span>
-                        </div>
-                      </button>
-                      {isSelected && !isDisabled && Object.keys(groupedOpts).length > 0 && (
-                        <div style={{ padding: '0 15px 15px 15px', background: '#f8fafc' }}>
-                          {Object.keys(groupedOpts).map(gn => (
-                            <div key={gn} style={{ marginTop: '10px' }}>
-                              <p style={{ fontSize: '0.7rem', color: '#475569' }}>└ {gn}</p>
-                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                                {groupedOpts[gn].map(opt => {
-  // 💡 選択中判定：配列の中に自分のIDがあるかどうかをチェック
-  const selections = selectedOptions[`${service.id}-${gn}`] || [];
-  const isOptSelected = Array.isArray(selections) 
-    ? selections.some(o => o.id === opt.id)
-    : selections?.id === opt.id;
-
-  return (
-    <button 
-      key={opt.id} 
-      onClick={() => handleOptionSelect(service.id, gn, opt, idx)} 
-      style={{ 
-        padding: '10px 5px', borderRadius: '8px', border: '1px solid', 
-        // 💡 複数選択OKな場合は、見た目を少し変える（例：角を少し丸くするなど）とお客さんに伝わりやすいです
-        borderColor: isOptSelected ? themeColor : '#cbd5e1', 
-        background: isOptSelected ? themeColor : 'white', 
-        color: isOptSelected ? 'white' : '#475569', 
-        fontSize: '0.8rem',
-        boxShadow: isOptSelected ? `0 2px 4px ${themeColor}44` : 'none'
-      }}
-    >
-      {opt.option_name}
-    </button>
-  );
-})}
+      {/* 🚀 🆕 【住所確定ガード】訪問型サービスで住所未確定ならメニューを隠す */}
+      {(!isVisitService || isAddressFixed || isAdminMode) ? (
+        <div style={{ animation: 'fadeIn 0.5s ease-out' }}>
+          <h3 style={{ fontSize: '1rem', borderLeft: `4px solid ${themeColor}`, paddingLeft: '10px', marginBottom: '20px' }}>
+            {people.length === 0 ? "2. メニューを選択" : `${people.length + 1}人目のメニューを選択`}
+          </h3>
+          
+          {categories
+            .filter(cat => {
+              // カテゴリ内に表示用メニューがあるかチェック
+              return services.some(s => s.category === cat.name && !s.show_on_print);
+            })
+            .map((cat, idx) => {
+              const isDisabled = disabledCategoryNames.includes(cat.name);
+              return (
+                <div key={cat.id} ref={el => categoryRefs.current[cat.id] = el} style={{ marginBottom: '35px', opacity: isDisabled ? 0.3 : 1 }}>
+                  <h4 style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '12px', lineHeight: '1.4' }}>
+                    {cat.name.split('/').map((text, i) => (
+                      <React.Fragment key={i}>
+                        {text.trim()}
+                        {i < cat.name.split('/').length - 1 && <br />}
+                      </React.Fragment>
+                    ))}
+                  </h4>
+                  <div style={{ display: 'grid', gap: '10px' }}>
+                    {services
+                      .filter(s => s.category === cat.name)
+                      .filter(service => {
+                        if (service.show_on_print) return false; 
+                        if (isAdminMode) return true;
+                        return !service.is_admin_only;
+                      })
+                      .map(service => {
+                        const isSelected = selectedServices.find(s => s.id === service.id);
+                        const groupedOpts = getGroupedOptions(service.id);
+                        return (
+                          <div key={service.id} ref={el => serviceRefs.current[service.id] = el} 
+                               style={{ border: isSelected ? `2px solid ${themeColor}` : '1px solid #ddd', borderRadius: '12px', background: 'white' }}>
+                            <button disabled={isDisabled} onClick={() => toggleService(service, idx)} style={{ width: '100%', padding: '15px', border: 'none', background: 'none', textAlign: 'left' }}>
+                              <div style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <div style={{ 
+                                  width: '18px', height: '18px', border: `2px solid ${themeColor}`, 
+                                  borderRadius: cat.allow_multiple_in_category ? '4px' : '50%', 
+                                  background: isSelected ? themeColor : 'transparent', 
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white' 
+                                }}>{isSelected && '✓'}</div>
+                                <span>{service.name}</span>
                               </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
+                            </button>
+                            {isSelected && !isDisabled && Object.keys(groupedOpts).length > 0 && (
+                              <div style={{ padding: '0 15px 15px 15px', background: '#f8fafc' }}>
+                                {Object.keys(groupedOpts).map(gn => (
+                                  <div key={gn} style={{ marginTop: '10px' }}>
+                                    <p style={{ fontSize: '0.7rem', color: '#475569' }}>└ {gn}</p>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                                      {groupedOpts[gn].map(opt => {
+                                        const selections = selectedOptions[`${service.id}-${gn}`] || [];
+                                        const isOptSelected = Array.isArray(selections) 
+                                          ? selections.some(o => o.id === opt.id)
+                                          : selections?.id === opt.id;
+                                        return (
+                                          <button 
+                                            key={opt.id} 
+                                            onClick={() => handleOptionSelect(service.id, gn, opt, idx)} 
+                                            style={{ 
+                                              padding: '10px 5px', borderRadius: '8px', border: '1px solid', 
+                                              borderColor: isOptSelected ? themeColor : '#cbd5e1', 
+                                              background: isOptSelected ? themeColor : 'white', 
+                                              color: isOptSelected ? 'white' : '#475569', 
+                                              fontSize: '0.8rem',
+                                              boxShadow: isOptSelected ? `0 2px 4px ${themeColor}44` : 'none'
+                                            }}
+                                          >
+                                            {opt.option_name}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    }
+                  </div>
+                </div>
+              );
+            })
+          }
+        </div>
+      ) : (
+        /* 🚀 🆕 住所がまだ決まっていない時に出す「待機ガイド」 */
+        <div style={{ 
+          textAlign: 'center', padding: '60px 20px', background: '#fff', 
+          borderRadius: '24px', border: '1px dashed #e2e8f0', marginTop: '20px',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.02)'
+        }}>
+          <div style={{ width: '60px', height: '60px', background: `${themeColor}10`, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
+            <MapPin size={30} color={themeColor} />
+          </div>
+          <h3 style={{ fontSize: '1rem', fontWeight: 'bold', color: '#1e293b', marginBottom: '10px' }}>メニューを表示します</h3>
+          <p style={{ fontSize: '0.85rem', color: '#64748b', lineHeight: '1.6', margin: 0 }}>
+            訪問先までの移動時間を計算するため、<br />
+            まずは**一番上のフォームに住所を入力**し、<br />
+            確定ボタンを押してください。
+          </p>
+        </div>
+      )}
 
-        {shop?.allow_multi_person_reservation && selectedServices.length > 0 && people.length < 3 && allOptionsSelected && isRequiredMet && (
+      {/* --- 追加でもう一人 ＋ ボタン（条件付き） --- */}
+      {shop?.allow_multi_person_reservation && selectedServices.length > 0 && people.length < 3 && allOptionsSelected && isRequiredMet && (
+        <button 
+          onClick={handleAddPerson}
+          style={{ 
+            position: 'fixed', bottom: '100px', right: '15px', zIndex: 999, 
+            writingMode: 'vertical-rl',
+            background: themeColor, color: 'white', padding: '15px 8px', 
+            borderRadius: '8px 0 0 8px', border: 'none', fontWeight: 'bold', 
+            fontSize: '0.85rem', boxShadow: '-4px 4px 12px rgba(0,0,0,0.1)', 
+            cursor: 'pointer', animation: 'slideIn 0.3s ease-out'
+          }}
+        >
+          追加でもう一人 ＋
+        </button>
+      )}
+
+      <style>{`
+        @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+      `}</style>
+
+      {/* --- 固定フッター：予約ボタンエリア --- */}
+      {(selectedServices.length > 0 || people.length > 0 || (isVisitService && !isAddressFixed && !isAdminMode)) && (
+        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: 'rgba(255,255,255,0.98)', backdropFilter: 'blur(10px)', padding: '15px 20px', borderTop: '1px solid #e2e8f0', textAlign: 'center', zIndex: 1000, boxShadow: '0 -4px 12px rgba(0,0,0,0.05)' }}>
           <button 
-            onClick={handleAddPerson}
+            // 🚀 🆕 管理者の時は住所チェックを完全にスルー！
+            disabled={
+              !allOptionsSelected || !isRequiredMet || !isTotalTimeOk || 
+              (isVisitService && !isAdminMode && (!isAddressFixed || !(/[0-9０-９一二三四五六七八九十]$|[\-\－]|丁目|番地|号|の[一二三四五六七八九十]/.test(visitorAddress))))
+            } 
+            onClick={handleNextStep} 
             style={{ 
-              position: 'fixed', bottom: '100px', right: '15px', zIndex: 999, 
-              writingMode: 'vertical-rl',
-              background: themeColor, color: 'white', padding: '15px 8px', 
-              borderRadius: '8px 0 0 8px', border: 'none', fontWeight: 'bold', 
-              fontSize: '0.85rem', boxShadow: '-4px 4px 12px rgba(0,0,0,0.1)', 
-              cursor: 'pointer', animation: 'slideIn 0.3s ease-out'
+              width: '100%', maxWidth: '400px', padding: '16px', 
+              // 🚀 🆕 背景色も管理者の時は住所を無視！
+              background: (!allOptionsSelected || !isRequiredMet || !isTotalTimeOk || (isVisitService && !isAdminMode && (!isAddressFixed || !(/[0-9０-９一二三四五六七八九十]$|[\-\－]|丁目|番地|号|の[一二三四五六七八九十]/.test(visitorAddress))))) ? '#cbd5e1' : themeColor, 
+              color: 'white', border: 'none', borderRadius: '14px', fontWeight: 'bold', fontSize: '1rem'
             }}
           >
-            追加でもう一人 ＋
+            {/* 🚀 🆕 メッセージの出し分け：管理者を最優先に */}
+            {isAdminMode ? (
+              (!allOptionsSelected || !isRequiredMet || !isTotalTimeOk) ? 'メニューを選択してください' : `予約内容を確定する (${totalSlotsNeeded * (shop?.slot_interval_min || 15)}分)`
+            ) : (
+              isVisitService && !isAddressFixed ? (
+                !(/[0-9０-９一二三四五六七八九十]$|[\-\－]|丁目|番地|号|の[一二三四五六七八九十]/.test(visitorAddress)) ? '番地（数字）を入力してください' : '1. 訪問先を確定してください'
+              ) : !allOptionsSelected ? 'オプションを選択してください' 
+                : !isRequiredMet ? '必須メニューが未選択です' 
+                : `日時選択へ進む (${totalSlotsNeeded * (shop?.slot_interval_min || 15)}分)`
+            )}
           </button>
-        )}
-
-        <style>{`
-          @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
-        `}</style>
-
-        {(selectedServices.length > 0 || people.length > 0) && (
-          <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: 'rgba(255,255,255,0.98)', backdropFilter: 'blur(10px)', padding: '15px 20px', borderTop: '1px solid #e2e8f0', textAlign: 'center', zIndex: 1000, boxShadow: '0 -4px 12px rgba(0,0,0,0.05)' }}>
-            <button 
-              disabled={!allOptionsSelected || !isRequiredMet || !isTotalTimeOk} 
-              onClick={handleNextStep} 
-              style={{ 
-                width: '100%', maxWidth: '400px', padding: '16px', 
-                background: (!allOptionsSelected || !isRequiredMet || !isTotalTimeOk) ? '#cbd5e1' : themeColor, 
-                color: 'white', border: 'none', borderRadius: '14px', fontWeight: 'bold', fontSize: '1rem'
-              }}
-            >
-              {!allOptionsSelected ? 'オプションを選択してください' 
-               : !isRequiredMet ? '必須メニューが未選択です' 
-               : isAdminMode ? `予約内容を確定する (${totalSlotsNeeded * (shop?.slot_interval_min || 15)}分)`
-               : `日時選択へ進む (${totalSlotsNeeded * (shop?.slot_interval_min || 15)}分)`}
-            </button>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
