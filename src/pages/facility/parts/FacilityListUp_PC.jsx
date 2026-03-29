@@ -136,11 +136,15 @@ const FacilityListUp_PC = ({ facilityId, isMobile, setActiveTab, sharedDate: vie
 
   const allEnsuredDates = useMemo(() => {
     const list = [];
-    
-    // 1. 手動キープ分（start_time を保持）
-    manualKeeps.forEach(k => {
-      list.push({ date: k.date, time: k.start_time || '09:00' });
-    });
+    // 🚀 🆕 現在表示している月の「YYYY-MM」形式を作る
+    const currentMonthPrefix = `${year}-${String(month + 1).padStart(2, '0')}`;
+
+    // 1. 手動キープ分（表示中の月のみに限定！）
+    manualKeeps
+      .filter(k => k.date.startsWith(currentMonthPrefix)) // 🚀 🆕 ここで12月分などを弾く
+      .forEach(k => {
+        list.push({ date: k.date, time: k.start_time || '09:00' });
+      });
 
     const lastDate = new Date(year, month + 1, 0).getDate();
     for (let d = 1; d <= lastDate; d++) {
@@ -297,18 +301,51 @@ const FacilityListUp_PC = ({ facilityId, isMobile, setActiveTab, sharedDate: vie
           </div>
           
           <div style={scrollArea}>
-            {unselectedResidents.map(res => (
-              <motion.div key={res.id} onClick={() => addToList(res)} style={residentCard} whileHover={{ x: 5, backgroundColor: '#fcfaf7' }} whileTap={{ scale: 0.98 }}>
-                <div style={resInfo}>
-                  <div style={roomTagBox}>
-                    <span style={fLabel}>{res.floor}</span>
-                    <span style={rLabel}>{res.room}</span>
-                  </div>
-                  <span style={nameText}>{res.name} 様</span>
-                </div>
-                <UserPlus size={20} color="#c5a059" />
-              </motion.div>
-            ))}
+            {(() => {
+              let lastLabel = ""; // 直前のカテゴリを記憶する変数
+              
+              return unselectedResidents.map((res) => {
+                // 🚀 🆕 現在のカテゴリ見出しを決定
+                let currentLabel = "";
+                if (sortMode === 'floor') {
+                  currentLabel = res.floor ? (String(res.floor).includes('F') ? res.floor : `${res.floor}F`) : "階数未設定";
+                } else {
+                  // 頭文字を抽出（かながあれば優先）
+                  currentLabel = (res.kana || res.name || "？").charAt(0);
+                }
+
+                // 🚀 🆕 直前の人とカテゴリが変わったか判定
+                const isNewGroup = currentLabel !== lastLabel;
+                lastLabel = currentLabel;
+
+                return (
+                  <React.Fragment key={res.id}>
+                    {/* カテゴリが変わった時だけ見出しを表示 */}
+                    {isNewGroup && (
+                      <div style={groupHeaderStyle}>
+                        {currentLabel}
+                      </div>
+                    )}
+                    
+                    <motion.div 
+                      onClick={() => addToList(res)} 
+                      style={residentCard} 
+                      whileHover={{ x: 5, backgroundColor: '#fcfaf7' }} 
+                      whileTap={{ scale: 0.98 }}
+                    >
+                      <div style={resInfo}>
+                        <div style={roomTagBox}>
+                          <span style={fLabel}>{res.floor}</span>
+                          <span style={rLabel}>{res.room}</span>
+                        </div>
+                        <span style={nameText}>{res.name} 様</span>
+                      </div>
+                      <UserPlus size={20} color="#c5a059" />
+                    </motion.div>
+                  </React.Fragment>
+                );
+              });
+            })()}
           </div>
         </section>
 
@@ -430,5 +467,22 @@ const navMiniBtn = {
   color: '#3d2b1f',
   transition: '0.2s',
   boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+};
+
+const groupHeaderStyle = {
+  padding: '12px 10px 4px',
+  fontSize: '1rem',
+  fontWeight: '900',
+  color: '#c2020f',
+  display: 'flex',
+  alignItems: 'center',
+  gap: '8px',
+  // 横線を入れて「区切り」を強調
+  borderBottom: '1px solid #f0e6d2',
+  marginBottom: '5px',
+  background: 'linear-gradient(to right, #fff, #fcfaf7)',
+  position: 'sticky', // スクロール時に見出しを固定したい場合
+  top: 0,
+  zIndex: 2
 };
 export default FacilityListUp_PC;

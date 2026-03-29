@@ -38,6 +38,8 @@ function AdminManagement() {
 
   // 🆕 追加：全顧客データ用のState
   const [allCustomers, setAllCustomers] = useState([]);
+  const [allMembers, setAllMembers] = useState([]);
+  const BLOCK_NAMES = ['臨時休業', '管理者ブロック'];
 
   // --- 予約・売上データ保持 ---
   const [allReservations, setAllReservations] = useState([]);
@@ -92,6 +94,7 @@ function AdminManagement() {
   // 🆕 追記：請求書の対象年月を管理（初期値は現在の年月）
   const [invoiceYear, setInvoiceYear] = useState(new Date().getFullYear());
   const [invoiceMonth, setInvoiceMonth] = useState(new Date().getMonth() + 1);
+  const [memberSortMode, setMemberSortMode] = useState('name');
 
   // ==========================================
   // --- 🆕 画面サイズ管理（エラー解決のために追加） ---
@@ -134,97 +137,78 @@ function AdminManagement() {
   const fetchInitialData = async () => {
     try {
       setLoading(true);
-// 🆕 maybeSingle に変え、business_name がある場合のみセットする
-const { data: profile } = await supabase
-  .from('profiles')
-  .select('*')
-  .eq('id', cleanShopId)
-  .maybeSingle();
-
-if (profile && profile.business_name) {
-  setShop(profile);
-} else {
-  // 店舗ではないID（お客様ID）で管理画面を開こうとした場合のガード
-  console.warn("店舗データが見つかりません。");
-}
       const startOfYear = `${viewYear}-01-01`;
       const endOfYear = `${viewYear}-12-31`;
 
-      // 2. 予約データ ＆ 施設訪問データを並列で取得（ここを大幅強化！）
-      const [resData, visitData] = await Promise.all([
-        supabase.from('reservations')
-          .select('*, staffs(name)')
-          .eq('shop_id', cleanShopId)
-          // 🚀 🆕 ブロック用フラグが true ではない（お客様の予約のみ）を取得
-          .or('is_block.is.null,is_block.eq.false') 
-          .order('start_time', { ascending: true }),
-        // ✅ エイリアス facility_data を使い、外部キー facility_user_id 経由で取得を安定させる
-        supabase.from('visit_requests')
-          .select('*, facility_data:facility_user_id(facility_name)')
-          .eq('shop_id', cleanShopId)
+      // --- 1. 店舗プロフィールの取得 ---
+      const { data: profile } = await supabase.from('profiles').select('*').eq('id', cleanShopId).maybeSingle();
+      if (profile && profile.business_name) setShop(profile);
+
+      // --- 2. 予約データ ＆ 施設訪問データを並列で取得 ---
+      const [resRes, visitRes] = await Promise.all([
+        supabase.from('reservations').select('*, staffs(name)').eq('shop_id', cleanShopId).or('is_block.is.null,is_block.eq.false').order('start_time', { ascending: true }),
+        supabase.from('visit_requests').select('*, facility_data:facility_user_id(facility_name)').eq('shop_id', cleanShopId)
       ]);
 
-      const individualTasks = (resData.data || []).map(r => ({ 
-        ...r, 
-        task_type: 'individual' 
-      }));
+      // 🛡️ ガード：エラー等でデータが null の場合でも空配列として扱う
+      const reservationsData = resRes.data || [];
+      const visitsData = visitRes.data || [];
 
-      const facilityTasks = (visitData.data || []).map(v => {
-        // ✅ 配列・オブジェクト両対応で施設名を抽出
+      // 🚀 🆕 訪問したことがある施設のIDリストを抽出（members取得用）
+      const facilityIds = [...new Set(visitsData.map(v => v.facility_user_id))].filter(Boolean);
+
+      // --- 3. 残りのマスター、売上、名簿、施設入居者をまとめて取得 ---
+      const [catRes, servRes, optRes, adjRes, prodRes, sDataRes, custAllRes, membersRes, staffsRes] = await Promise.all([
+        supabase.from('service_categories').select('*').eq('shop_id', cleanShopId).order('sort_order'),
+        supabase.from('services').select('*').eq('shop_id', cleanShopId).order('sort_order'),
+        supabase.from('service_options').select('*'),
+        supabase.from('admin_adjustments').select('*').eq('shop_id', cleanShopId),
+        supabase.from('products').select('*').eq('shop_id', cleanShopId).order('sort_order'),
+        supabase.from('sales').select('*').eq('shop_id', cleanShopId).gte('sale_date', startOfYear).lte('sale_date', endOfYear),
+        supabase.from('customers').select('*').eq('shop_id', cleanShopId).order('last_arrival_at', { ascending: false }),
+        facilityIds.length > 0 
+          ? supabase.from('members').select('*').in('facility_user_id', facilityIds)
+          : Promise.resolve({ data: [] }),
+        supabase.from('staffs').select('*').eq('shop_id', cleanShopId)
+      ]);
+
+      // 🔍 🚀 【復活！】デバッグコード
+      console.log("--- クエストデータ取得デバッグ ---");
+      console.log("選択中の店舗ID (shopId):", cleanShopId);
+      console.log("取得した個人予約数 (resData):", reservationsData.length);
+      console.log("取得した施設訪問数 (visitData):", visitsData.length);
+      console.log("施設訪問データの生の中身:", visitsData);
+      if (visitsData.length > 0) {
+        console.log("1件目の予定日:", visitsData[0].scheduled_date);
+        // 配列・オブジェクト両対応で見出し施設名を特定
+        const fData = Array.isArray(visitsData[0].facility_data) ? visitsData[0].facility_data[0] : visitsData[0].facility_data;
+        console.log("1件目の施設名:", fData?.facility_name);
+      }
+      console.log("取得した施設入居者数 (allMembers):", membersRes.data?.length || 0);
+      console.log("取得した一般売上数 (sales):", sDataRes.data?.length || 0);
+      console.log("取得した一般顧客数 (customers):", custAllRes.data?.length || 0);
+      console.log("------------------------------");
+
+      // --- 4. 全てのデータをStateに反映 ---
+      const individualTasks = reservationsData.map(r => ({ ...r, task_type: 'individual' }));
+      const facilityTasks = visitsData.map(v => {
         const fData = Array.isArray(v.facility_data) ? v.facility_data[0] : v.facility_data;
-        return { 
-          ...v, 
-          task_type: 'facility',
-          // ここが台帳に表示される名前になります
-          customer_name: fData?.facility_name || '名称未設定施設',
-          start_time: `${v.scheduled_date}T09:00:00` 
-        };
+        return { ...v, task_type: 'facility', customer_name: fData?.facility_name || '名称未設定施設', start_time: `${v.scheduled_date}T09:00:00` };
       });
 
-      // 合体させてセット（これで台帳に両方並びます）
       setAllReservations([...individualTasks, ...facilityTasks]);
-
-      // 3. スタッフ名簿取得
-      const { data: staffsData } = await supabase.from('staffs').select('*').eq('shop_id', cleanShopId);
-      setStaffs(staffsData || []);
-
-      // 4. 各種マスター ＆ 売上実績(sales)取得
-      const [catRes, servRes, optRes, adjRes, prodRes, sDataRes, custAllRes] = await Promise.all([ // 🆕 custAllResを追加
-        supabase.from('service_categories').select('*').eq('shop_id', cleanShopId).order('sort_order'),
-        supabase.from('services').select('*').eq('shop_id', cleanShopId).order('sort_order'),
-        supabase.from('service_options').select('*'),
-        supabase.from('admin_adjustments').select('*').eq('shop_id', cleanShopId),
-        supabase.from('products').select('*').eq('shop_id', cleanShopId).order('sort_order'),
-        supabase.from('sales').select('*').eq('shop_id', cleanShopId).gte('sale_date', startOfYear).lte('sale_date', endOfYear),
-        supabase.from('customers').select('*').eq('shop_id', cleanShopId).order('last_arrival_at', { ascending: false }) // 🆕 全顧客取得
-      ]);
-
-      const allCats = catRes.data || [];
-      const serviceOnlyCats = allCats.filter(c => !c.is_adjustment_cat && !c.is_product_cat);
-
-      setCategories(serviceOnlyCats); // 💡 これでポップアップが綺麗になります
+      setCategories(catRes.data?.filter(c => !c.is_adjustment_cat && !c.is_product_cat) || []);
       setServices(servRes.data || []);
       setServiceOptions(optRes.data || []);
       setAdminAdjustments(adjRes.data || []);
       setProducts(prodRes.data || []);
       setSalesRecords(sDataRes.data || []);
       setAllCustomers(custAllRes.data || []);
-
-    // 🔍 ここにデバッグコードを挿入！
-      console.log("--- クエストデータ取得デバッグ ---");
-      console.log("選択中の店舗ID (shopId):", cleanShopId);
-      console.log("取得した個人予約数:", resData.data?.length);
-      console.log("取得した施設訪問数:", visitData.data?.length);
-      console.log("施設訪問データの生の中身:", visitData.data);
-      if (visitData.data?.length > 0) {
-        console.log("1件目の予定日:", visitData.data[0].scheduled_date);
-        // 🔍 修正：facility_users ではなく facility_data を見ます
-        console.log("1件目の施設名:", visitData.data[0].facility_data?.facility_name);
-      }
-      console.log("------------------------------");
+      setAllMembers(membersRes.data || []);
+      setStaffs(staffsRes.data || []);
 
     } catch (err) {
-      console.error("Fetch Error:", err); 
+      console.error("致命的な取得エラー:", err); 
     } finally { 
       setLoading(false); 
     }
@@ -725,15 +709,41 @@ const completePayment = async () => {
   const managedFacilityMembers = useMemo(() => {
     if (!selectedCustomer) return [];
     
-    // この施設(customer_id)の全売上データを取得
+    // 1. この施設の全売上データを取得
     const facilitySales = salesRecords.filter(s => s.customer_id === selectedCustomer.id);
     
-    // details.members_list の中から名前をすべて抜き出す
-    const allNames = facilitySales.flatMap(s => s.details?.members_list || []).map(m => m.name);
-    
-    // 重複を削除して、あいうえお順に並び替える
-    return [...new Set(allNames)].sort((a, b) => a.localeCompare(b, 'ja'));
-  }, [selectedCustomer, salesRecords]);
+    // 2. 名寄せMapを作成（最新の日付を保持）
+    const memberMap = {};
+    facilitySales.forEach(s => {
+      const date = s.sale_date?.split('T')[0] || "";
+      s.details?.members_list?.forEach(m => {
+        if (!memberMap[m.name] || memberMap[m.name].date < date) {
+          memberMap[m.name] = { date: date };
+        }
+      });
+    });
+
+    // 3. 配列に変換し、名簿(allMembers)から「ひらがな」を合流させる
+    const list = Object.entries(memberMap).map(([name, val]) => {
+      const memberInfo = allMembers.find(m => m.name === name); 
+      return {
+        name: name,
+        // ひらがなを正規化（カタカナをひらがなに変換して「あいうえお順」を確実にする）
+        kana: (memberInfo?.kana || memberInfo?.furigana || name)
+          .replace(/[\u30a1-\u30f6]/g, s => String.fromCharCode(s.charCodeAt(0) - 0x60)), 
+        lastVisit: val.date
+      };
+    });
+
+    // 4. 指定されたモードで並び替え
+    return list.sort((a, b) => {
+      if (memberSortMode === 'date') {
+        return b.lastVisit.localeCompare(a.lastVisit); // 日付順（新しい順）
+      } else {
+        return a.kana.localeCompare(b.kana, 'ja'); // あいうえお順
+      }
+    });
+  }, [selectedCustomer, salesRecords, memberSortMode, allMembers]);
   // 🏢 ここまで ======================================================
   const groupedWholeAdjustments = useMemo(() => {
     const sorted = sortItems(adminAdjustments.filter(adj => adj.service_id === null));
@@ -785,15 +795,27 @@ const completePayment = async () => {
         .eq('name', res.customer_name)
         .maybeSingle();
 
-      // 🆕 修正：全項目 ＆ カスタム質問の回答を State (editFields) に集約
+      // 🚀 🆕 施設の場合、facility_users テーブルからも詳細を取得する
+      let facilityDetail = null;
+      if (customer?.is_facility) {
+        const { data: fData } = await supabase
+          .from('facility_users')
+          .select('*')
+          .eq('facility_name', customer.name)
+          .maybeSingle();
+        facilityDetail = fData;
+      }
+
       const visitInfo = res.options?.visit_info || {};
       const allFields = {
+        is_facility: customer?.is_facility || false, // 🚀 🆕 施設判定を保持
         name: customer?.name || res.customer_name || '',
-        furigana: customer?.furigana || visitInfo.furigana || '',
-        phone: customer?.phone || res.customer_phone || '',
-        email: customer?.email || res.customer_email || '',
+        // 🚀 🆕 施設なら「担当者名」、個人なら「ふりがな」をセット
+        furigana: facilityDetail?.contact_name || customer?.furigana || visitInfo.furigana || '',
+        phone: facilityDetail?.tel || customer?.phone || res.customer_phone || '',
+        email: facilityDetail?.email || customer?.email || res.customer_email || '',
         zip_code: customer?.zip_code || visitInfo.zip_code || '',
-        address: customer?.address || visitInfo.address || '',
+        address: facilityDetail?.address || customer?.address || visitInfo.address || '',
         parking: customer?.parking || visitInfo.parking || '',
         building_type: customer?.building_type || visitInfo.building_type || '',
         care_notes: customer?.care_notes || visitInfo.care_notes || '',
@@ -857,10 +879,11 @@ const completePayment = async () => {
       const payload = { 
         shop_id: cleanShopId, 
         name: normalizedName, 
-        furigana: editFields.furigana,
+        furigana: editFields.furigana, // 施設ならここが担当者名として保存される
         phone: editFields.phone, 
         email: editFields.email, 
         address: editFields.address,
+        is_facility: editFields.is_facility, // 🚀 🆕 施設フラグを維持
         zip_code: editFields.zip_code,
         parking: editFields.parking,
         building_type: editFields.building_type,
@@ -875,6 +898,16 @@ const completePayment = async () => {
       
       if (currentId) await supabase.from('customers').update(payload).eq('id', currentId); 
       else await supabase.from('customers').insert([payload]);
+
+      // 🚀 🆕 施設の場合、facility_users テーブル側も更新する
+      if (editFields.is_facility) {
+        await supabase.from('facility_users').update({
+          contact_name: editFields.furigana, // ふりがな欄を「担当者名」として同期
+          tel: editFields.phone,
+          email: editFields.email,
+          address: editFields.address
+        }).eq('facility_name', normalizedName);
+      }
 
       alert("情報を更新しました。"); 
       fetchInitialData();
@@ -1960,49 +1993,76 @@ return (
               {/* 🆕 🚀 ここから施設専用の利用者リストを表示！！ ================== */}
               {managedFacilityMembers.length > 0 && (
                 <div style={{ marginBottom: '30px', background: '#f0f7ff', padding: '20px', borderRadius: '20px', border: '2px solid #4f46e5' }}>
-                  <SectionTitle icon={<Users size={18} />} title="施設のご利用者・入居者様" color="#4f46e5" />
-                  <p style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: '12px' }}>
-                    名前をタップすると、その方の「個別カルテ」を開いてメモを書けます
-                  </p>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'x', rowGap: '12px', columnGap: '15px' }}>
-                    {managedFacilityMembers.map(name => (
-                      <span 
-                        key={name} 
-                        onClick={() => openCustomerInfo({ customer_name: name })} // 👈 魔法の1行（個人のカルテへジャンプ）
-                        style={{ 
-                          fontSize: '0.95rem', fontWeight: 'bold', color: '#4f46e5', 
-                          cursor: 'pointer', textDecoration: 'underline', textDecorationColor: '#cbd5e1',
-                          background: '#fff', padding: '4px 10px', borderRadius: '8px', border: '1px solid #e0e7ff'
-                        }}
-                      >
-                        {name} 様
-                      </span>
-                    ))}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                    <SectionTitle icon={<Users size={18} />} title="施設のご利用者・入居者様" color="#4f46e5" />
+                    
+                    {/* 🚀 🆕 並び替えスイッチ */}
+                    <div style={{ display: 'flex', gap: '4px', background: '#fff', padding: '3px', borderRadius: '8px', border: '1px solid #e0e7ff' }}>
+                      <button onClick={() => setMemberSortMode('name')} style={miniSortBtn(memberSortMode === 'name')}>あいうえお</button>
+                      <button onClick={() => setMemberSortMode('date')} style={miniSortBtn(memberSortMode === 'date')}>利用日順</button>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {(() => {
+                      let lastLabel = "";
+                      return managedFacilityMembers.map((m) => {
+                        // 🚀 🆕 見出し札の文字を決定
+                        let currentLabel = "";
+                        if (memberSortMode === 'date') {
+                          currentLabel = m.lastVisit ? m.lastVisit.substring(0, 7).replace('-', '/') : "未利用";
+                        } else {
+                          const first = (m.kana || "").charAt(0);
+                          currentLabel = first.match(/^[ぁ-ん]$/) ? first : "他";
+                        }
+
+                        const isNewGroup = currentLabel !== lastLabel;
+                        lastLabel = currentLabel;
+
+                        return (
+                          <React.Fragment key={m.name}>
+                            {/* カテゴリが変わった瞬間にだけ「札」を出す */}
+                            {isNewGroup && <div style={memberGroupLabel}>{currentLabel}</div>}
+                            
+                            <div 
+                              onClick={() => openCustomerInfo({ customer_name: m.name })}
+                              style={memberRowStyle}
+                            >
+                              <span style={{ fontWeight: 'bold' }}>{m.name} 様</span>
+                              <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                                {m.lastVisit ? `最終: ${m.lastVisit.replace(/-/g, '/')}` : '記録なし'}
+                              </span>
+                            </div>
+                          </React.Fragment>
+                        );
+                      });
+                    })()}
                   </div>
                 </div>
               )}
               {/* 🏢 ここまで ====================================================== */}
 
-              <SectionTitle icon={<User size={16} />} title="基本情報" color="#008000" />
+              <SectionTitle icon={<User size={16} />} title={editFields.is_facility ? "施設プロフィール情報" : "基本情報"} color="#008000" />
               
-              {/* 🆕 順番固定・ボタン付きの最強カルテUI */}
               <div style={{ background: '#fff', padding: '20px', borderRadius: '15px', border: '1px solid #eee', marginBottom: '20px' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   
-                  {/* 🚀 🆕 施設フラグの切り替えスイッチを追加 */}
-                  <div style={{ background: '#f0fdf4', padding: '12px', borderRadius: '10px', border: '1px solid #bbf7d0', marginBottom: '10px' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
-                      <input 
-                        type="checkbox" 
-                        checked={editFields.is_facility || false}
-                        onChange={(e) => setEditFields({...editFields, is_facility: e.target.checked})}
-                        style={{ width: '18px', height: '18px' }}
-                      />
-                      <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#166534' }}>
-                        提携施設として登録（請求書発行機能を有効にする）
-                      </span>
-                    </label>
-                  </div>
+                  {/* 🚀 🆕 施設でない（個人客の）場合のみ、提携チェックボックスを表示する */}
+                  {!editFields.is_facility && (
+                    <div style={{ background: '#f0fdf4', padding: '12px', borderRadius: '10px', border: '1px solid #bbf7d0', marginBottom: '10px' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                        <input 
+                          type="checkbox" 
+                          checked={editFields.is_facility || false}
+                          onChange={(e) => setEditFields({...editFields, is_facility: e.target.checked})}
+                          style={{ width: '18px', height: '18px' }}
+                        />
+                        <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#166534' }}>
+                          提携施設として登録（請求書発行機能を有効にする）
+                        </span>
+                      </label>
+                    </div>
+                  )}
 
                   {(() => {
                     const fieldOrder = [
@@ -2015,16 +2075,19 @@ return (
                     return fieldOrder.map((key) => {
                       if (!shouldShowInAdmin(key)) return null;
 
+                      // 🚀 🆕 ラベル名の出し分けロジック
+                      let label = getFieldLabel(key);
+                      if (editFields.is_facility) {
+                        if (key === 'name') label = '施設名';
+                        if (key === 'furigana') label = '施設担当者名';
+                        if (key === 'phone') label = '施設電話番号（代表）';
+                        if (key === 'address') label = '施設住所';
+                      }
+
                       return (
                         <div key={key}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
-                            <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#64748b' }}>{getFieldLabel(key)}</label>
-                            {key === 'phone' && editFields.phone && (
-                              <a href={`tel:${editFields.phone}`} style={badgeStyle('#10b981')}>電話 📞</a>
-                            )}
-                            {key === 'address' && editFields.address && (
-                              <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(editFields.address)}`} target="_blank" rel="noopener noreferrer" style={badgeStyle('#3b82f6')}>マップ 📍</a>
-                            )}
+                            <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#64748b' }}>{label}</label>
                           </div>
                           
                           {key === 'parking' ? (
@@ -2617,6 +2680,43 @@ const qtyBadgeStyle = {
   border: '2px solid #fff',
   boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
   zIndex: 1
+};
+
+// 🚀 🆕 施設利用者リストの並び替えボタン
+const miniSortBtn = (active) => ({
+  padding: '4px 8px', 
+  fontSize: '0.65rem', 
+  fontWeight: 'bold', 
+  border: 'none', 
+  borderRadius: '6px',
+  cursor: 'pointer', 
+  background: active ? '#4f46e5' : 'transparent', 
+  color: active ? '#fff' : '#64748b', 
+  transition: '0.2s'
+});
+
+// 🚀 🆕 施設利用者リストの「見出し札（あ、い、2026/03...）」
+const memberGroupLabel = {
+  fontSize: '0.7rem', 
+  fontWeight: '900', 
+  color: '#4f46e5', 
+  padding: '10px 5px 2px', 
+  borderBottom: '1px solid #e0e7ff', 
+  marginBottom: '4px'
+};
+
+// 🚀 🆕 施設利用者リストの「一行」のデザイン
+const memberRowStyle = {
+  display: 'flex', 
+  justifyContent: 'space-between', 
+  alignItems: 'center', 
+  padding: '12px 15px',
+  background: '#fff', 
+  borderRadius: '12px', 
+  border: '1px solid #e0e7ff', 
+  cursor: 'pointer',
+  boxShadow: '0 2px 4px rgba(0,0,0,0.02)',
+  marginTop: '4px'
 };
 
 /* --- 🚀 ここまで追加 --- */

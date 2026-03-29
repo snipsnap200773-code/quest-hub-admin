@@ -11,6 +11,7 @@ const FacilityKeepDate_PC = ({ facilityId, isMobile, setActiveTab, sharedDate: c
   const [selectedShop, setSelectedShop] = useState(null);
   const [keepDates, setKeepDates] = useState([]); 
   const [confirmedVisits, setConfirmedVisits] = useState([]);
+  const [shopBlocks, setShopBlocks] = useState([]);
   const [regularRules, setRegularRules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [exclusions, setExclusions] = useState([]); 
@@ -51,16 +52,19 @@ const FacilityKeepDate_PC = ({ facilityId, isMobile, setActiveTab, sharedDate: c
     const shopId = selectedShop.id;
     const startOfMonth = `${year}-${String(month + 1).padStart(2, '0')}-01`;
     const endOfMonth = `${year}-${String(month + 1).padStart(2, '0')}-${new Date(year, month + 1, 0).getDate()}`;
-    const [visitData, keeps, conns, exclData] = await Promise.all([
+    const [visitData, keeps, conns, exclData, blocksRes] = await Promise.all([
       supabase.from('visit_requests').select('scheduled_date, status').eq('shop_id', shopId).eq('facility_user_id', facilityId).neq('status', 'canceled'),
       supabase.from('keep_dates').select('*').eq('shop_id', shopId),
       supabase.from('shop_facility_connections').select('facility_user_id, regular_rules').eq('shop_id', shopId),
-      supabase.from('regular_keep_exclusions').select('excluded_date').eq('facility_user_id', facilityId).eq('shop_id', shopId)
+      supabase.from('regular_keep_exclusions').select('excluded_date').eq('facility_user_id', facilityId).eq('shop_id', shopId),
+      // 🚀 🆕 業者側の「is_block」がついたデータを取得
+      supabase.from('reservations').select('start_time').eq('shop_id', shopId).eq('is_block', true)
     ]);
     setKeepDates(keeps.data || []);
     setConfirmedVisits(visitData.data || []);
     setRegularRules(conns.data || []);
     setExclusions(exclData.data?.map(e => e.excluded_date) || []);
+    setShopBlocks(blocksRes.data || []); // 🚀 🆕 セット！
     setLoading(false);
   };
 
@@ -89,11 +93,34 @@ const FacilityKeepDate_PC = ({ facilityId, isMobile, setActiveTab, sharedDate: c
     const d = new Date(dateStr);
     const regKeep = checkIsRegularKeep(d);
     if (dateStr < todayStr) return 'past';
+
+    // 🚀 🆕 1. 長期休暇（夏休み・正月休みなど）の判定
+    const specialHolidays = selectedShop?.special_holidays || [];
+    const isSpecialHoliday = specialHolidays.some(h => dateStr >= h.start && dateStr <= h.end);
+    if (isSpecialHoliday) return 'ng';
+
+    // 🚀 🆕 2. 個別ブロック（臨時休業など）の判定
+    const isShopBlocked = shopBlocks.some(b => b.start_time.startsWith(dateStr));
+    if (isShopBlocked) return 'ng';
+
     const dayNames = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
     const dayKey = dayNames[d.getDay()];
-    const nthWeek = Math.ceil(d.getDate() / 7);
+    // 第n週の計算（L1, L2対応のためカレンダーロジックと合わせる）
+    const dom = d.getDate();
+    const nthWeek = Math.ceil(dom / 7);
+    const t7 = new Date(d); t7.setDate(dom + 7);
+    const isL1 = t7.getMonth() !== d.getMonth();
+    const t14 = new Date(d); t14.setDate(dom + 14);
+    const isL2 = t14.getMonth() !== d.getMonth() && !isL1;
+
+    // 🚀 🆕 3. 定休日の判定（L1, L2もカバー）
     const holidays = selectedShop?.business_hours?.regular_holidays || {};
-    if (holidays[`${nthWeek}-${dayKey}`]) return 'ng';
+    const isRegularHoliday = holidays[`${nthWeek}-${dayKey}`] || 
+                             (isL1 && holidays[`L1-${dayKey}`]) || 
+                             (isL2 && holidays[`L2-${dayKey}`]);
+
+    if (isRegularHoliday) return 'ng';
+
     if (confirmedVisits.some(v => v.scheduled_date === dateStr)) return 'booked';
     if (regKeep && !exclusions.includes(dateStr)) return { type: regKeep.keeperId === facilityId ? 'keeping' : 'other-keep', time: regKeep.time };
     const manualKeep = keepDates.find(k => k.date === dateStr && k.facility_user_id === facilityId);
@@ -103,7 +130,15 @@ const FacilityKeepDate_PC = ({ facilityId, isMobile, setActiveTab, sharedDate: c
   };
 
   const allActiveKeeps = useMemo(() => {
-    const list = [...keepDates.filter(k => k.facility_user_id === facilityId).map(k => ({...k, isRegular: false}))];
+    // 🚀 🆕 現在の月のプレフィックス（例: "2026-03"）を作成
+    const currentMonthPrefix = `${year}-${String(month + 1).padStart(2, '0')}`;
+
+    // 🚀 🆕 マニュアルキープを表示中の月だけに限定してリストを開始
+    const list = [...keepDates
+      .filter(k => k.facility_user_id === facilityId && k.date.startsWith(currentMonthPrefix)) 
+      .map(k => ({...k, isRegular: false}))
+    ];
+
     days.forEach(day => {
       if (!day) return;
       const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;

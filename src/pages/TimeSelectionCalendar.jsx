@@ -26,6 +26,9 @@ function TimeSelectionCalendar() {
   const [allStaffs, setAllStaffs] = useState([]);
   const [targetStaff, setTargetStaff] = useState(null);
   const [existingReservations, setExistingReservations] = useState([]);
+  const [facilitySchedules, setFacilitySchedules] = useState([]); 
+  const [regularKeepRules, setRegularKeepRules] = useState([]);
+  const [exclusions, setExclusions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isAuthReady, setIsAuthReady] = useState(false); // 🆕 認証同期完了フラグ
 
@@ -72,12 +75,26 @@ function TimeSelectionCalendar() {
       }
 
       // 4. 既存予約の取得（認証が確定しているため、RLSによる空配列問題を回避できます）
-      const { data: resData } = await supabase
-        .from('reservations')
-        .select('start_time, end_time, staff_id, res_type') 
-        .in('shop_id', targetShopIds);
+      const [resRes, visitRes, keepRes, connRes, exclRes] = await Promise.all([
+        supabase.from('reservations').select('start_time, end_time, staff_id, res_type, is_block').in('shop_id', targetShopIds),
+        supabase.from('visit_requests').select('scheduled_date').in('shop_id', targetShopIds).neq('status', 'canceled'),
+        supabase.from('keep_dates').select('date').in('shop_id', targetShopIds),
+        // 定期ルール
+        supabase.from('shop_facility_connections').select('regular_rules').in('shop_id', targetShopIds).eq('status', 'active'),
+        // ルール除外日
+        supabase.from('regular_keep_exclusions').select('excluded_date').in('shop_id', targetShopIds)
+      ]);
         
-      setExistingReservations(resData || []);
+      setExistingReservations(resRes.data || []);
+      setRegularKeepRules(connRes.data || []);
+      setExclusions(exclRes.data?.map(e => e.excluded_date) || []);
+
+      // 確定・手動キープを一つのリストに（終日ブロック用）
+      const fDates = [
+        ...(visitRes.data || []).map(v => v.scheduled_date),
+        ...(keepRes.data || []).map(k => k.date)
+      ].filter(Boolean);
+      setFacilitySchedules([...new Set(fDates)]);
 
       // 5. 業種キーワードによる自動判定（三土手さんのロジックを完全維持）
       const VISIT_KEYWORDS = ['訪問', '出張', '代行', 'デリバリー', '清掃'];
@@ -146,17 +163,41 @@ function TimeSelectionCalendar() {
     return false;
   };
 
-  // ✅ 🆕 修正：長期休暇（夏休み等）の期間中か判定する関数を追加
+  /* ==========================================
+     🚀 🆕 ここから貼り付け！ (定義部分)
+     ========================================== */
+
+  // 1. 長期休暇（夏休み・正月休みなど）の判定
   const checkIsSpecialHoliday = (date) => {
-    // 💡 新設した special_holidays カラムを見に行きます
     if (!shop?.special_holidays || !Array.isArray(shop.special_holidays)) return false;
-    
-    const targetDateStr = date.toLocaleDateString('sv-SE'); // YYYY-MM-DD形式
-    
-    return shop.special_holidays.some(h => {
-      // 💡 選択した日が「開始日」と「終了日」の間であれば true を返す
-      return targetDateStr >= h.start && targetDateStr <= h.end;
-    });
+    const targetDateStr = date.toLocaleDateString('sv-SE');
+    return shop.special_holidays.some(h => targetDateStr >= h.start && targetDateStr <= h.end);
+  };
+
+  // 2. 定期キープ（第n月曜など）の対象日か判定
+  const checkIsRegularKeepDay = (date) => {
+    if (!regularKeepRules || regularKeepRules.length === 0) return false;
+    const dateStr = date.toLocaleDateString('sv-SE');
+    // 除外設定がある日はスルー
+    if (exclusions.includes(dateStr)) return false;
+
+    const day = date.getDay();
+    const dom = date.getDate();
+    const m = date.getMonth() + 1;
+    const nthWeek = Math.ceil(dom / 7);
+    const t7 = new Date(date); t7.setDate(dom + 7);
+    const isL1 = t7.getMonth() !== date.getMonth();
+    const t14 = new Date(date); t14.setDate(dom + 14);
+    const isL2 = t14.getMonth() !== date.getMonth() && !isL1;
+
+    return regularKeepRules.some(conn => 
+      conn.regular_rules?.some(r => {
+        const monthMatch = (r.monthType === 0) || (r.monthType === 1 && m % 2 !== 0) || (r.monthType === 2 && m % 2 === 0);
+        const dayMatch = (r.day === day);
+        const weekMatch = (r.week === nthWeek) || (r.week === -1 && isL1) || (r.week === -2 && isL2);
+        return monthMatch && dayMatch && weekMatch;
+      })
+    );
   };
 
   const isStaffOnHoliday = (date, staff) => {
@@ -187,27 +228,35 @@ function TimeSelectionCalendar() {
     return slots;
   }, [shop]);
 
-  const checkAvailability = (date, timeStr) => {
+const checkAvailability = (date, timeStr) => {
     if (!shop?.business_hours) return { status: 'none', remaining: 0 };
 
-    // 💡 🆕 修正：定休日 または 長期休暇 なら「休」にする
-    if (checkIsRegularHoliday(date) || checkIsSpecialHoliday(date)) {
-      return { status: 'closed', label: '休', remaining: 0 };
-    }
-
-    const dayOfWeek = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][date.getDay()];
-    const hours = shop.business_hours[dayOfWeek];
-    const dateStr = date.toLocaleDateString('sv-SE'); 
+    // --- 🚀 1. 判定に必要な変数を最初にすべて定義する ---
+    const dateStr = date.toLocaleDateString('sv-SE'); // YYYY-MM-DD
     const now = new Date();
     const todayStr = now.toLocaleDateString('sv-SE');
+    const dayOfWeek = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][date.getDay()];
+    const hours = shop.business_hours[dayOfWeek];
     const openTime = hours?.open || "09:00";
     const closeTime = hours?.close || "18:00";
 
+    /* ==========================================
+       🚀 🆕 2. 【終日ブロック判定】定休日・長期休暇・施設訪問日・定期キープ
+       ========================================== */
+    const isSpecialHoliday = checkIsSpecialHoliday(date); // 長期休暇（夏休み等）
+    const isRegularHoliday = checkIsRegularHoliday(date); // 定休日（毎週の休み）
+    const isFacilityDay = facilitySchedules.includes(dateStr); // 🏢 施設が手動キープまたは予約済
+    const isRegularKeep = checkIsRegularKeepDay(date); // 🏢 定期キープ（第n曜日のルール）
+
+    // どれか一つでも該当すれば、即座に「休」を返して終了
+    if (isSpecialHoliday || isRegularHoliday || isFacilityDay || isRegularKeep) {
+      return { status: 'closed', label: '休', remaining: 0 };
+    }
+
+    // --- 3. 営業時間外チェック ---
     if (timeStr < openTime || timeStr >= closeTime) return { status: 'none', remaining: 0 };
 
-    // ------------------------------------------------------------
-    // 1. 休憩時間の判定用ヘルパー
-    // ------------------------------------------------------------
+    // --- 4. 休憩時間の判定ヘルパー ---
     const isInsideRest = (checkT) => {
       if (!hours?.rest_start || !hours?.rest_end) return false;
       const s = hours.rest_start.slice(0, 5);
@@ -215,104 +264,53 @@ function TimeSelectionCalendar() {
       return checkT >= s && checkT < e;
     };
 
-    // 💡 開始時間が休憩中なら即「休」
+    // 💡 開始時間が休憩中なら「休」
     if (isInsideRest(timeStr)) return { status: 'rest', label: '休', remaining: 0 };
 
-    // ------------------------------------------------------------
-    // 2. メニューごとの「排他（独占）時間」チェック
-    // ------------------------------------------------------------
-    const selectedServices = (people || []).flatMap(p => p.services || []);
-    const restrictedServicesSelected = selectedServices.filter(s => s.restricted_hours && s.restricted_hours.length > 0);
-    const otherServiceRestrictions = (allShopServices || [])
-      .filter(s => s.restricted_hours && s.restricted_hours.length > 0)
-      .filter(s => !selectedServices.some(sel => sel.id === s.id));
+    // --- 5. 管理者による個別ブロック（is_block: true） ---
+    const currentSlotTime = new Date(`${dateStr}T${timeStr}:00`).getTime();
+    const isBlockedByAdmin = existingReservations.some(res => {
+      if (res.is_block !== true) return false;
+      const s = new Date(res.start_time).getTime();
+      const e = new Date(res.end_time).getTime();
+      return currentSlotTime >= s && currentSlotTime < e;
+    });
 
-    // A: 制限メニューを予約しようとしている時
-    if (restrictedServicesSelected.length > 0) {
-      const isAllowed = restrictedServicesSelected.every(s => s.restricted_hours.some(r => timeStr >= r.start && timeStr <= r.end));
-      if (!isAllowed) return { status: 'none', remaining: 0 };
-    } 
-    // B: 普通のメニューを予約しようとしている時
-    else {
-      const isOccupied = otherServiceRestrictions.some(s => s.restricted_hours.some(r => timeStr >= r.start && timeStr <= r.end));
-      if (isOccupied) return { status: 'none', remaining: 0 };
-    }
+    if (isBlockedByAdmin) return { status: 'booked', label: '×', remaining: 0 };
 
-    // ------------------------------------------------------------
-    // 3. 作業中の「休憩時間・貫通」チェック
-    // ------------------------------------------------------------
-    const targetDateTime = new Date(`${dateStr}T${timeStr}:00`);
+    /* ==========================================
+       🚀 6. 以降、既存の貫通チェックや空き枠計算
+       ========================================== */
     const interval = shop.slot_interval_min || 15;
     const buffer = shop.buffer_preparation_min || 0;
+
     // 💡 作業時間 ＋ 移動バッファ
-    const getCalculatedTotalSlots = () => {
-      if (!people || people.length === 0) return totalSlotsNeeded;
-      return people.reduce((sum, p) => {
-        const serviceSlots = (p.services || []).reduce((s, serv) => s + (serv.slots || 0), 0);
-        const optionSlots = Object.values(p.options || {}).flat().reduce((o, opt) => o + (opt?.additional_slots || 0), 0);
-        return sum + serviceSlots + optionSlots;
-      }, 0);
+    const getCalculatedTotalSlots = () => {
+      if (!people || people.length === 0) return totalSlotsNeeded;
+      return people.reduce((sum, p) => {
+        const serviceSlots = (p.services || []).reduce((s, serv) => s + (serv.slots || 0), 0);
+        const optionSlots = Object.values(p.options || {}).flat().reduce((o, opt) => o + (opt?.additional_slots || 0), 0);
+        return sum + serviceSlots + optionSlots;
+      }, 0);
     };
 
-    const effectiveTotalSlots = getCalculatedTotalSlots();
+    const effectiveTotalSlots = getCalculatedTotalSlots();
+    const totalMinRequired = (effectiveTotalSlots * interval) + buffer + (travelTimeMinutes || 0);
+    const targetDateTime = new Date(`${dateStr}T${timeStr}:00`);
+    const potentialEndTime = new Date(targetDateTime.getTime() + totalMinRequired * 60 * 1000);
 
-    // 🆕 1日貸切モード(is_full_day)の判定ロジック
-    const selectedServicesInCurrentSelection = (people || []).flatMap(p => p.services || []);
-    const fullDayMenu = selectedServicesInCurrentSelection.find(s => s.is_full_day);
-
-    let totalMinRequired;
-
-    if (fullDayMenu) {
-      // 💡 1日貸切の場合：その日に既存の予約が1件でも入っていたら「×（予約不可）」にする
-      const hasAnyExistingRes = existingReservations.some(res => {
-        const resDate = new Date(res.start_time).toLocaleDateString('sv-SE');
-        const isSameStaff = !targetStaff || res.staff_id === targetStaff.id;
-        return resDate === dateStr && isSameStaff;
-      });
-
-      if (hasAnyExistingRes) return { status: 'booked', label: '×', remaining: 0 };
-
-      // 💡 占有時間を「許可された時間枠の終了」まで引き延ばす
-      if (fullDayMenu.restricted_hours && fullDayMenu.restricted_hours.length > 0) {
-        // 現在の枠が含まれる許可時間帯を探す
-        const activeRange = fullDayMenu.restricted_hours.find(r => timeStr >= r.start && timeStr < r.end);
-        if (activeRange) {
-          const [startH, startM] = timeStr.split(':').map(Number);
-          const [endH, endM] = activeRange.end.split(':').map(Number);
-          totalMinRequired = (endH * 60 + endM) - (startH * 60 + startM);
-        } else {
-          return { status: 'none', remaining: 0 }; // 許可時間外
-        }
-      } else {
-        // 許可時間の制限がない場合は「閉店時間」までを占有
-        const [startH, startM] = timeStr.split(':').map(Number);
-        const [closeH, closeM] = closeTime.split(':').map(Number);
-        totalMinRequired = (closeH * 60 + closeM) - (startH * 60 + startM);
-      }
-    } else {
-      // 通常メニューの場合は従来のコマ数計算
-      totalMinRequired = (effectiveTotalSlots * interval) + buffer + (travelTimeMinutes || 0);
-    }
-
-    const potentialEndTime = new Date(targetDateTime.getTime() + totalMinRequired * 60 * 1000);
-
-    // 開始から終了までの全スロットを1コマずつ精査
+    // 休憩時間を貫通していないかチェック
     for (let t = targetDateTime.getTime(); t < potentialEndTime.getTime(); t += interval * 60 * 1000) {
       const checkTStr = new Date(t).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false });
-      // 💡 途中で1コマでも休憩時間にぶつかったら「×」にする
-      if (isInsideRest(checkTStr)) {
-        return { status: 'booked', label: '×', remaining: 0 };
-      }
+      if (isInsideRest(checkTStr)) return { status: 'booked', label: '×', remaining: 0 };
     }
 
-    // ------------------------------------------------------------
-    // 4. 閉店時間チェック（以降、既存ロジック）
-    // ------------------------------------------------------------
+    // 閉店時間を過ぎていないか
     const [closeH, closeM] = closeTime.split(':').map(Number);
     const closeDateTime = new Date(`${dateStr}T${String(closeH).padStart(2,'0')}:${String(closeM).padStart(2,'0')}:00`);
-
     if (potentialEndTime > closeDateTime) return { status: 'short', label: '△', remaining: 0 };
 
+    // 過去の時間 または 直近制限チェック
     const limitDays = Math.floor((shop.min_lead_time_hours || 0) / 24);
     const limitDate = new Date(now);
     limitDate.setHours(0,0,0,0);
@@ -321,6 +319,7 @@ function TimeSelectionCalendar() {
     if (dateStr === todayStr && targetDateTime < now) return { status: 'past', label: '－', remaining: 0 };
     if (new Date(dateStr) < limitDate) return { status: 'past', label: '－', remaining: 0 };
 
+    // スタッフ空き枠の集計
     const storeMax = shop?.max_capacity || 1;
     const activeStaffs = allStaffs.filter(s => {
       if (targetStaff && s.id !== targetStaff.id) return false;
@@ -329,7 +328,6 @@ function TimeSelectionCalendar() {
     });
 
     let minRemaining = storeMax;
-
     for (let t = targetDateTime.getTime(); t < potentialEndTime.getTime(); t += interval * 60 * 1000) {
       const travelBufferMs = (travelTimeMinutes || 0) * 60 * 1000;
       const prepBufferMs = (shop.buffer_preparation_min || 0) * 60 * 1000;
@@ -357,33 +355,6 @@ function TimeSelectionCalendar() {
       if (!anyStaffAvailable) return { status: 'booked', label: '×', remaining: 0 };
     }
 
-    if (shop.auto_fill_logic && (storeMax === 1 || targetStaff)) {
-      const dayRes = existingReservations.filter(r => r.start_time.startsWith(dateStr) && (!targetStaff || r.staff_id === targetStaff.id));
-      if (dayRes.length > 0) {
-        const specialSlots = [];
-        const gapBlockCandidates = [];
-        dayRes.forEach(r => {
-          const resEnd = new Date(r.end_time).getTime();
-          const earliestPossible = resEnd + (buffer * 60 * 1000);
-          const perfectPostSlot = timeSlots.find(s => {
-            const [sh, sm] = s.split(':').map(Number);
-            const slotDate = new Date(dateStr); slotDate.setHours(sh, sm, 0, 0);
-            return slotDate.getTime() >= earliestPossible;
-          });
-          if (perfectPostSlot) {
-            specialSlots.push(perfectPostSlot); 
-            const idx = timeSlots.indexOf(perfectPostSlot);
-            if (idx + 1 < timeSlots.length) gapBlockCandidates.push(timeSlots[idx + 1]);
-          }
-          const resStartStr = new Date(r.start_time).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false });
-          const startIdx = timeSlots.indexOf(resStartStr);
-          if (startIdx >= 3) gapBlockCandidates.push(timeSlots[startIdx - 3]);
-        });
-        if (gapBlockCandidates.includes(timeStr) && !specialSlots.includes(timeStr)) {
-          return { status: 'gap', label: '✕', remaining: 0 }; 
-        }
-      }
-    }
     return { status: 'available', label: '◎', remaining: minRemaining };
   };
 
