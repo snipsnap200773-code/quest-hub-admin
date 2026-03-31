@@ -506,6 +506,19 @@ const fetchScheduleData = async () => {
             </div>
           </label>
         </div>
+
+        {/* 🆕 追記：営業日でも祝日は定休日にする設定 */}
+        <div style={{ marginTop: '10px', padding: '16px', background: '#fef2f2', borderRadius: '16px', border: '1px dashed #fca5a5' }}>
+          <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
+            <span style={{ fontWeight: 'bold', fontSize: '0.9rem', color: '#991b1b', flex: 1 }}>営業日でも祝日は定休日にする</span>
+            <div 
+              onClick={() => setRegularHolidays(prev => ({...prev, close_on_holiday: !prev.close_on_holiday}))} 
+              style={{ width: '50px', height: '28px', background: regularHolidays.close_on_holiday ? '#ef4444' : '#cbd5e1', borderRadius: '20px', position: 'relative', transition: '0.3s' }}
+            >
+              <div style={{ position: 'absolute', top: '2px', left: regularHolidays.close_on_holiday ? '24px' : '2px', width: '24px', height: '24px', background: '#fff', borderRadius: '50%', transition: '0.3s', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }} />
+            </div>
+          </label>
+        </div>
       </section>
 
       {/* 💾 保存ボタン */}

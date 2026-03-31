@@ -32,6 +32,9 @@ function TimeSelectionCalendar() {
   const [loading, setLoading] = useState(true);
   const [isAuthReady, setIsAuthReady] = useState(false); // 🆕 認証同期完了フラグ
 
+  // --- 🚀 🆕 祝日データを保存する箱を追加 ---
+  const [holidays, setHolidays] = useState({});
+
   // ✅ 🆕 修正：店舗の全メニュー情報を保持するStateを追加
   const [allShopServices, setAllShopServices] = useState([]);
 
@@ -46,6 +49,14 @@ function TimeSelectionCalendar() {
     setLoading(true);
 
     try {
+      // --- 🚀 🆕 日本の祝日データを外部APIから取得 ---
+      try {
+        const hRes = await fetch('https://holidays-jp.github.io/api/v1/date.json');
+        const hData = await hRes.json();
+        setHolidays(hData); // {"2026-04-29": "昭和の日", ...} というデータが入る
+      } catch (err) {
+        console.error("祝日データの取得に失敗しました", err);
+      }
       // 1. ショップ情報の取得
       const { data: profile } = await supabase.from('profiles').select('*').eq('id', shopId).single();
       if (!profile) { setLoading(false); return; }
@@ -144,7 +155,19 @@ function TimeSelectionCalendar() {
   // --- ⚙️ エンジンロジック（三土手さんのロジックを完全継承） ---
   const checkIsRegularHoliday = (date) => {
     if (!shop?.business_hours?.regular_holidays) return false;
-    const holidays = shop.business_hours.regular_holidays;
+    const regularHolidaysSettings = shop.business_hours.regular_holidays;
+
+    // --- 🚀 🆕 祝日判定（APIデータ連動版） ---
+    const dateStr = date.toLocaleDateString('sv-SE'); // "2026-04-29" の形式に変換
+    const isPublicHoliday = !!holidays[dateStr];     // 祝日リストにこの日付があれば true
+    
+    // 設定1：営業日でも祝日は「定休日」にする場合
+    if (isPublicHoliday && regularHolidaysSettings.close_on_holiday) return true;
+    
+    // 設定2：定休日でも祝日は「営業」する場合
+    if (isPublicHoliday && regularHolidaysSettings.open_on_holiday) return false;
+    // ------------------------------------------
+
     const dayNames = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
     const dayName = dayNames[date.getDay()];
     const dom = date.getDate();
@@ -467,20 +490,29 @@ const checkAvailability = (date, timeStr) => {
               const isPast = date < new Date(new Date().setHours(0,0,0,0));
               return (
 <div 
-                  key={date.toString()} 
-                  onClick={() => handleDateClick(date)} // 🆕 以前の setSelectedDate を handleDateClick に変更
-                  style={{
-                    
-                    padding: '10px 0', borderRadius: '12px', cursor: isHoliday || isPast ? 'default' : 'pointer',
-                    background: isSelected ? themeColor : 'transparent',
-                    color: isSelected ? '#fff' : (isHoliday || isPast ? '#cbd5e1' : '#1e293b'),
-                    fontWeight: isSelected ? 'bold' : 'normal',
-                    position: 'relative'
-                  }}
-                >
-                  {date.getDate()}
-                  {!isHoliday && !isPast && <div style={{ width: '4px', height: '4px', background: isSelected ? '#fff' : themeColor, borderRadius: '50%', margin: '2px auto 0' }} />}
-                </div>
+  key={date.toString()} 
+  onClick={() => !isHoliday && !isPast && handleDateClick(date)} // 休みならクリックを無効化
+  style={{
+    padding: '10px 0', 
+    borderRadius: '12px', 
+    // 🆕 休みや過去日は「禁止マーク」のカーソルにする
+    cursor: isHoliday || isPast ? 'not-allowed' : 'pointer',
+    // 🆕 休みや過去日は背景を薄いグレーにする
+    background: isSelected ? themeColor : (isHoliday || isPast ? '#f1f5f9' : 'transparent'),
+    // 🆕 文字色をさらに薄くする
+    color: isSelected ? '#fff' : (isHoliday || isPast ? '#94a3b8' : '#1e293b'),
+    fontWeight: isSelected ? 'bold' : 'normal',
+    position: 'relative',
+    // 🆕 休みや過去日はクリックを物理的に通さない
+    pointerEvents: isHoliday || isPast ? 'none' : 'auto'
+  }}
+>
+  {date.getDate()}
+  {/* 🆕 休みや過去日には「予約可能ドット」を表示しない（ここは既存通りですが再確認！） */}
+  {!isHoliday && !isPast && (
+    <div style={{ width: '4px', height: '4px', background: isSelected ? '#fff' : themeColor, borderRadius: '50%', margin: '2px auto 0' }} />
+  )}
+</div>
               );
             })}
           </div>

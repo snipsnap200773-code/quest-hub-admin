@@ -669,7 +669,14 @@ return (
               {people.length > 1 && (
                 <div style={{ fontWeight: 'bold', color: themeColor, marginBottom: '4px' }}>{idx + 1}人目</div>
               )}
-              <div style={{ fontWeight: 'bold' }}>{person.fullName}</div>
+              <div style={{ fontWeight: 'bold', lineHeight: '1.4' }}>
+  {person.fullName.split('/').map((text, i) => (
+    <React.Fragment key={i}>
+      {text.trim()}
+      {i < person.fullName.split('/').length - 1 && <br />}
+    </React.Fragment>
+  ))}
+</div>
             </div>
           ))}
 
@@ -688,8 +695,20 @@ return (
               </p>
               {restrictedServices.map((s, idx) => (
                 <div key={idx} style={{ fontSize: '0.75rem', color: '#9a3412', lineHeight: '1.4' }}>
-                  ・<b>{s.name}</b> は、専用枠（{s.restricted_hours.map(r => `${r.start}〜${r.end}`).join(', ')}）でのみ受け付けております。
-                </div>
+<div style={{ display: 'flex', alignItems: 'flex-start', gap: '4px' }}>
+  <span>・</span>
+  <div style={{ flex: 1 }}>
+    <b style={{ lineHeight: '1.3' }}>
+      {s.name.split('/').map((text, i) => (
+        <React.Fragment key={i}>
+          {text.trim()}
+          {i < s.name.split('/').length - 1 && <br />}
+        </React.Fragment>
+      ))}
+    </b>
+    <span> は、専用枠（{s.restricted_hours.map(r => `${r.start}〜${r.end}`).join(', ')}）でのみ受け付けております。</span>
+  </div>
+</div>                </div>
               ))}
             </div>
           )}
@@ -713,7 +732,15 @@ return (
               {/* 各入力項目の div */}
               <div style={{ position: 'relative' }}>
                 <label style={{ fontSize: '0.8rem', fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>
-                  {config.label} {config.required && <span style={{ color: '#ef4444' }}>*</span>}
+<span style={{ lineHeight: '1.2' }}>
+  {config.label.split('/').map((text, i) => (
+    <React.Fragment key={i}>
+      {text.trim()}
+      {i < config.label.split('/').length - 1 && <br />}
+    </React.Fragment>
+  ))}
+</span>
+{config.required && <span style={{ color: '#ef4444', marginLeft: '4px' }}>*</span>}
                 </label>
 
                 {key === 'name' ? (

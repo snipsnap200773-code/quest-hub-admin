@@ -602,13 +602,13 @@ const handleNextStep = () => {
         {/* --- 店舗説明文 --- */}
         {displayBranding.desc && (
           <p style={{ fontSize: '0.9rem', color: '#475569', lineHeight: '1.6' }}>
-            {displayBranding.desc.split('/').map((line, idx) => (
-              <React.Fragment key={idx}>
-                {line}
-                {idx < displayBranding.desc.split('/').length - 1 && <br />}
-              </React.Fragment>
-            ))}
-          </p>
+  {displayBranding.desc && displayBranding.desc.split('/').map((line, idx) => (
+    <React.Fragment key={idx}>
+      {line.trim()}
+      {idx < displayBranding.desc.split('/').length - 1 && <br />}
+    </React.Fragment>
+  ))}
+</p>
         )}
       </div>
 
@@ -658,7 +658,14 @@ const handleNextStep = () => {
                                   background: isSelected ? themeColor : 'transparent', 
                                   display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white' 
                                 }}>{isSelected && '✓'}</div>
-                                <span>{service.name}</span>
+                                <span style={{ lineHeight: '1.4' }}>
+  {service.name.split('/').map((text, i) => (
+    <React.Fragment key={i}>
+      {text.trim()}
+      {i < service.name.split('/').length - 1 && <br />}
+    </React.Fragment>
+  ))}
+</span>
                               </div>
                             </button>
                             {isSelected && !isDisabled && Object.keys(groupedOpts).length > 0 && (
@@ -685,7 +692,14 @@ const handleNextStep = () => {
                                               boxShadow: isOptSelected ? `0 2px 4px ${themeColor}44` : 'none'
                                             }}
                                           >
-                                            {opt.option_name}
+                                            <span style={{ lineHeight: '1.2', display: 'block' }}>
+  {opt.option_name.split('/').map((text, i) => (
+    <React.Fragment key={i}>
+      {text.trim()}
+      {i < opt.option_name.split('/').length - 1 && <br />}
+    </React.Fragment>
+  ))}
+</span>
                                           </button>
                                         );
                                       })}

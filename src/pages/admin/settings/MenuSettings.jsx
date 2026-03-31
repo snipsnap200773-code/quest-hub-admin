@@ -872,7 +872,14 @@ const handleProdCatSubmit = async (e) => {
               <div key={s.id} style={{ ...cardStyle, marginBottom: '12px', border: activeServiceForOptions?.id === s.id ? `2px solid ${themeColor}` : '1px solid #e2e8f0' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
 <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 'bold', color: '#1e293b' }}>{s.name}</div>
+                    <div style={{ fontWeight: 'bold', color: '#1e293b', lineHeight: '1.4' }}>
+  {s.name.split('/').map((text, i) => (
+    <React.Fragment key={i}>
+      {text}
+      {i !== s.name.split('/').length - 1 && <br />}
+    </React.Fragment>
+  ))}
+</div>
                     {/* 金額を表示するために flex で横並びにします [cite: 2026-03-08] */}
                     <div style={{ display: 'flex', gap: '12px', marginTop: '4px' }}>
                       <div style={{ fontSize: '0.8rem', color: themeColor, fontWeight: 'bold' }}>{s.slots}コマ（{s.slots * slotIntervalMin}分）</div>
@@ -1014,7 +1021,14 @@ const handleProdCatSubmit = async (e) => {
     {options.filter(o => o.service_id === s.id && o.group_name === group).map(o => (
       <div key={o.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: '#fff', borderRadius: '8px', border: '1px solid #eee', marginBottom: '4px' }}>
                               <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                <span style={{ fontSize: '0.85rem', color: '#1e293b', fontWeight: 'bold' }}>{o.option_name}</span>
+                                <span style={{ fontSize: '0.85rem', color: '#1e293b', fontWeight: 'bold', lineHeight: '1.4', display: 'block' }}>
+  {o.option_name.split('/').map((text, i) => (
+    <React.Fragment key={i}>
+      {text}
+      {i !== o.option_name.split('/').length - 1 && <br />}
+    </React.Fragment>
+  ))}
+</span>
                                 <div style={{ display: 'flex', gap: '8px', fontSize: '0.75rem' }}>
                                   <span style={{ color: themeColor }}>+{o.additional_slots}コマ</span>
                                   {/* ✅ 枝メニューの追加料金を表示 [cite: 2026-03-08] */}
