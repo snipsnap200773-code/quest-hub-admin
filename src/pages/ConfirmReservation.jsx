@@ -35,10 +35,18 @@ function ConfirmReservation() {
     visitorAddress,
     travelTimeMinutes,
     authUserProfile,
-    isSalesExcluded
+    isSalesExcluded,
+    adminBizType
   } = location.state || {};
   
-const isAdminEntry = !!adminDate; 
+// 🚀 🆕 追加：URLの末尾にある ?type=○○ を読み取る処理
+  const params = new URLSearchParams(window.location.search);
+  const urlBizType = params.get('type');
+
+  // 💡 管理者ねじ込みならstateの値を、お客様予約ならURLの値を最終的なキーとして採用する
+  const finalBizType = adminBizType || urlBizType;
+  
+  const isAdminEntry = !!adminDate;
 
 
   const [shop, setShop] = useState(null);
@@ -524,6 +532,7 @@ const handleReserve = async () => {
           end_time: endDateTime.toISOString(), 
           total_slots: totalSlotsNeeded,
           res_type: 'normal',
+          biz_type: location.state?.bizType,
           line_user_id: lineUser?.userId || null,
           cancel_token: cancelToken,
           menu_name: menuLabel,

@@ -650,8 +650,13 @@ const checkAvailability = (date, timeStr) => {
               }
 
               // 2. 通常の一般客予約（既存の動き）
-              navigate(`/shop/${shopId}/confirm`, { 
-                state: { ...location.state, date: selectedDate.toLocaleDateString('sv-SE'), time: selectedTime, staffId: targetStaff?.id || staffIdFromUrl || location.state?.staffId } 
+              navigate(`/shop/${shopId}/confirm${window.location.search}`, { 
+                state: { 
+                  ...location.state, 
+                  date: selectedDate.toLocaleDateString('sv-SE'), 
+                  time: selectedTime, 
+                  staffId: targetStaff?.id || staffIdFromUrl || location.state?.staffId 
+                } 
               });
             }}
           >

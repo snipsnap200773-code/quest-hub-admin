@@ -23,6 +23,29 @@ const getCustomerColor = (name) => {
   };
 };
 
+// 🚀 🆕 追加：予約メニューから合計金額を計算するロジック（AdminReservationsから移植）
+const parseReservationDetails = (res) => {
+  if (!res) return { menuName: '', totalPrice: 0 };
+  const opt = typeof res.options === 'string' ? JSON.parse(res.options) : (res.options || {});
+  let items = [];
+  let subItems = [];
+
+  if (opt.people && Array.isArray(opt.people)) {
+    items = opt.people.flatMap(p => p.services || []);
+    subItems = opt.people.flatMap(p => Object.values(p.options || {}));
+  } else {
+    items = opt.services || [];
+    subItems = Object.values(opt.options || {});
+  }
+
+  let basePrice = items.reduce((sum, item) => sum + (Number(item.price) || 0), 0);
+  const optPrice = subItems.reduce((sum, o) => sum + (Number(o.additional_price) || 0), 0);
+
+  return { 
+    totalPrice: basePrice + optPrice 
+  };
+};
+
 // 🆕 追加：定休日かどうかを判定するヘルパー関数（エラー解決用）
 const isShopHoliday = (shop, date) => {
   if (!shop?.business_hours?.regular_holidays) return false;
@@ -60,6 +83,7 @@ function AdminTimeline() {
   const [reservations, setReservations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(new Date().toLocaleDateString('sv-SE'));
+  const [categoryMap, setCategoryMap] = useState({});
   
 // モーダル・操作用
   const [showMenuModal, setShowMenuModal] = useState(false);
@@ -128,6 +152,18 @@ const [selectedCustomer, setSelectedCustomer] = useState(null);
     // 1. 店舗プロフィール取得
     const { data: profile } = await supabase.from('profiles').select('*').eq('id', shopId).single();
     if (profile) setShop(profile);
+
+    // 🚀 🆕 追加：カテゴリと専用屋号のリストを取得してマップを作る
+    const { data: catData } = await supabase
+      .from('service_categories')
+      .select('name, url_key, custom_shop_name')
+      .eq('shop_id', shopId);
+    
+    const shopNameMap = {};
+    catData?.forEach(c => {
+      if (c.url_key) shopNameMap[c.url_key] = c.custom_shop_name || c.name;
+    });
+    setCategoryMap(shopNameMap);
 
     // 2. スタッフ一覧取得
     const { data: staffsData } = await supabase
@@ -697,25 +733,47 @@ const timeSlots = useMemo(() => {
           <td key={time} onClick={() => handleCellClick(matches, time, staffIdVal)} style={{ minWidth: '120px', borderRight: '1.5px solid #cbd5e1', borderBottom: '1.5px solid #cbd5e1', position: 'relative', background: '#fff', padding: 0, cursor: 'pointer' }}>
             {hasRes && (
               <div style={{ position: 'absolute', inset: '6px 0', background: isMultiple ? '#e0e7ff' : colors.bg, borderTop: `1.5px solid ${isMultiple ? themeColor : colors.border}`, borderBottom: `1.5px solid ${isMultiple ? themeColor : colors.border}`, borderLeft: isStart ? `1.5px solid ${isMultiple ? themeColor : colors.border}` : 'none', borderRight: isEnd ? `1.5px solid ${isMultiple ? themeColor : colors.border}` : 'none', borderRadius: `${isStart ? '8px' : '0'} ${isEnd ? '8px' : '0'} ${isEnd ? '8px' : '0'} ${isStart ? '8px' : '0'}`, display: 'flex', alignItems: 'center', justifyContent: isStart ? 'flex-start' : 'center', padding: isStart ? '0 10px' : '0', zIndex: 5, overflow: 'hidden' }}>
+                
                 {isStart ? (
-                  /* 🆕 表示ロジックを強化 */
-                  <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: isMultiple ? themeColor : colors.text, whiteSpace: 'nowrap' }}>
-                    {(() => {
-                      // この枠で開始する人が1人だけなら名前を優先
-if (startingHere.length === 1) {
-                        // 🆕 マスタ側の最新名を特定する
-                        const res = startingHere[0];
-                        const masterName = res.customers?.admin_name || res.customers?.name || res.customer_name;
-                        const name = masterName.split(/[\s　]+/)[0];
-                        // 他の人と重なっていれば (人数) を追加
-                        return isMultiple ? `${name} (${matches.length}名)` : `${name} 様`;
-                      }
-                      // 同時に2人以上が開始する場合はアイコン表示
-                      return `👥 ${matches.length}名`;
-                    })()}
-                  </span>
+                  /* 🚀 🆕 修正：屋号バッジ ＋ 名前 のセット表示に強化 */
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden', width: '100%' }}>
+                    
+                    {/* 🆕 屋号バッジ（識別キーに対応する名前がある場合のみ表示） */}
+                    {categoryMap[firstRes?.biz_type] && (
+                      <span style={{ 
+                        fontSize: '0.55rem', 
+                        padding: '1px 4px', 
+                        borderRadius: '3px',
+                        // カレンダー側と色を合わせています（footは青、それ以外は朱色）
+                        background: firstRes.biz_type === 'foot' ? '#4285f4' : '#d34817', 
+                        color: '#fff', 
+                        fontWeight: '900', 
+                        whiteSpace: 'nowrap',
+                        transform: 'scale(0.9)', // 少し小さくしてスッキリさせる
+                        flexShrink: 0 // バッジが潰れないように固定
+                      }}>
+                        {categoryMap[firstRes.biz_type].slice(0, 4)}
+                      </span>
+                    )}
+
+                    {/* 👤 予約者名の表示 */}
+                    <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: isMultiple ? themeColor : colors.text, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                      {(() => {
+                        // この枠で開始する人が1人だけなら名前を優先
+                        if (startingHere.length === 1) {
+                          const res = startingHere[0];
+                          const masterName = res.customers?.admin_name || res.customers?.name || res.customer_name;
+                          const name = masterName?.split(/[\s　]+/)[0] || "名前なし";
+                          return isMultiple ? `${name} (${matches.length}名)` : `${name} 様`;
+                        }
+                        // 同時に2人以上が開始する場合は人数を表示
+                        return `👥 ${matches.length}名`;
+                      })()}
+                    </span>
+                  </div>
+
                 ) : (
-                  /* 続きの枠は中央ライン */
+                  /* 続きの枠は中央ライン（既存どおり） */
                   <div style={{ width: '100%', height: '3px', background: isMultiple ? themeColor : colors.line, opacity: 0.4 }} />
                 )}
               </div>
@@ -1007,14 +1065,46 @@ if (startingHere.length === 1) {
                     {customerHistory.map((h) => {
                       const hDate = new Date(h.start_time);
                       const isToday = hDate.toLocaleDateString('sv-SE') === new Date().toLocaleDateString('sv-SE');
+                      
+                      // 🚀 🆕 追加：この履歴項目の事業名を取得
+                      const hBrandLabel = categoryMap[h.biz_type];
+
                       return (
                         <div key={h.id} style={{ padding: '15px', borderBottom: '1px solid #eee', background: '#fff', borderRadius: isToday ? '12px' : '0', border: isToday ? `2px solid ${themeColor}` : 'none' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-                            <span style={{ fontWeight: 'bold' }}>{hDate.toLocaleDateString('ja-JP')}</span>
-                            <span style={{ color: '#e11d48', fontWeight: 'bold' }}>¥{(h.total_price || 0).toLocaleString()}</span>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontWeight: 'bold' }}>{hDate.toLocaleDateString('ja-JP')}</span>
+                              
+                              {/* 🚀 🆕 追加：履歴リスト用の小さなバッジ */}
+{hBrandLabel && (
+                                <span style={{ 
+                                  fontSize: '0.6rem', 
+                                  padding: '1px 5px', 
+                                  borderRadius: '4px',
+                                  background: h.biz_type === 'foot' ? '#4285f4' : '#d34817', 
+                                  color: '#fff', 
+                                  fontWeight: '900',
+                                  whiteSpace: 'nowrap'
+                                }}>
+                                  {hBrandLabel.slice(0, 5)}
+                                </span>
+                              )}
+                            </div>
+                            
+                            {/* 🚀 🆕 修正：金額表示を (予) 対応版に書き換え */}
+                            {(() => {
+                              // 実績(total_price)があればそれ、なければ計算した予定額(予)を表示
+                              const displayPrice = h.total_price > 0 ? h.total_price : parseReservationDetails(h).totalPrice;
+                              return (
+                                <span style={{ color: '#e11d48', fontWeight: 'bold' }}>
+                                  ¥{displayPrice.toLocaleString()}
+                                  {h.total_price === 0 && <small style={{ fontSize: '0.6rem', marginLeft: '2px' }}>(予)</small>}
+                                </span>
+                              );
+                            })()}
                           </div>
                           <div style={{ color: '#475569', fontSize: '0.8rem' }}>{h.menu_name}</div>
-                        </div>
+                          </div>
                       );
                     })}
                   </div>

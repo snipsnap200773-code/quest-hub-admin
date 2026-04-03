@@ -70,6 +70,7 @@ function AdminReservations() {
   const [exclusions, setExclusions] = useState([]);
   const [facilityConnections, setFacilityConnections] = useState([]);
   const [message, setMessage] = useState('');
+  const [categoryMap, setCategoryMap] = useState({});
 
   const [startDate, setStartDate] = useState(() => {
     const params = new URLSearchParams(window.location.search);
@@ -256,6 +257,21 @@ const isPC = windowWidth > 1024;
     const { data: profile } = await supabase.from('profiles').select('*').eq('id', shopId).single();
     if (!profile) { setLoading(false); return; }
     setShop(profile);
+
+    // 🆕 カテゴリと専用屋号のリストを取得
+  const { data: catData } = await supabase
+    .from('service_categories')
+    .select('name, url_key, custom_shop_name')
+    .eq('shop_id', shopId);
+  
+  const shopNameMap = {};
+  catData?.forEach(c => {
+    // 💡 識別キー(url_key)をキーにして、専用屋号を格納
+    if (c.url_key) {
+      shopNameMap[c.url_key] = c.custom_shop_name || c.name;
+    }
+  });
+  setCategoryMap(shopNameMap); // 💡 あとで使えるようにStateに入れておきます
 
     // ✅ スタッフ一覧を取得（何人いるか判定するため）
     const { data: staffsData } = await supabase
@@ -1373,14 +1389,35 @@ return (
     const name = masterName?.split(/[\s　]+/)[0] || "名前なし";
     const countSuffix = reservationCount > 1 ? ` (${reservationCount}名)` : " 様";
 
+    // 🚀 🆕 追加：biz_type（識別キー）を使って、専用屋号を取得する
+    const brandLabel = categoryMap[res.biz_type];
+
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.1 }}>
+        
+        {/* 🚀 🆕 追加：屋号バッジの表示（識別キーがセットされている場合のみ） */}
+        {brandLabel && (
+          <div style={{ 
+            fontSize: '0.6rem', 
+            padding: '1px 5px', 
+            borderRadius: '4px', 
+            marginBottom: '3px',
+            // キーによって色を分けるとさらに見やすいです
+            background: res.biz_type === 'foot' ? '#4285f4' : '#d34817', 
+            color: '#fff', 
+            fontWeight: '900', 
+            transform: 'scale(0.85)',
+            whiteSpace: 'nowrap'
+          }}>
+            {brandLabel.slice(0, 5)} {/* 長い場合は5文字でカット */}
+          </div>
+        )}
+
         {isPC ? (
           <span style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>{name}{countSuffix}</span>
         ) : (
           <span style={{ writingMode: 'vertical-rl', textOrientation: 'upright', fontSize: '0.75rem', fontWeight: 'bold' }}>{name}</span>
         )}
-        {/* ✅ 個人の枠内も金額を削除しました */}
       </div>
     );
   }
@@ -1604,9 +1641,16 @@ return (
                     
                     {/* 📋 予約メニュー内訳 */}
                     <div style={{ background: themeColorLight, padding: '16px', borderRadius: '15px', marginBottom: '20px', border: `1px solid ${themeColor}` }}>
-                      <label style={{ fontSize: '0.75rem', fontWeight: '900', color: themeColor, display: 'block', marginBottom: '10px' }}>📋 予約メニュー内訳</label>
-                      <div style={{ fontWeight: 'bold', color: '#1e293b' }}>{selectedRes?.menu_name || 'メニュー未設定'}</div>
-                    </div>
+      {/* 🆕 事業名の表示を追加 */}
+      {categoryMap[selectedRes?.category] && (
+        <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 'bold', marginBottom: '4px' }}>
+          🏢 受付事業：{categoryMap[selectedRes?.category]}
+        </div>
+      )}
+      
+      <label style={{ fontSize: '0.75rem', fontWeight: '900', color: themeColor, display: 'block', marginBottom: '10px' }}>📋 予約メニュー内訳</label>
+      <div style={{ fontWeight: 'bold', color: '#1e293b' }}>{selectedRes?.menu_name || 'メニュー未設定'}</div>
+    </div>
 
                     {/* 🆕 修正：ここから動的フォーム（順番固定版） */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -1755,11 +1799,41 @@ return (
                     {customerHistory.map((h, idx) => {
                       const hDate = new Date(h.start_time);
                       const isToday = hDate.toLocaleDateString('sv-SE') === new Date().toLocaleDateString('sv-SE');
-                      return (
-                        <div key={h.id} style={{ padding: '15px', borderBottom: '1px solid #eee', background: '#fff', borderRadius: isToday ? '12px' : '0', border: isToday ? `2px solid ${themeColor}` : 'none' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-                            <span style={{ fontWeight: 'bold' }}>{hDate.toLocaleDateString('ja-JP')}</span>
-                            {(() => {
+                      const hBrandLabel = categoryMap[h.biz_type];
+
+  return (
+    <div 
+      key={h.id} 
+      style={{ 
+        padding: '15px', 
+        borderBottom: '1px solid #eee', 
+        background: '#fff', 
+        borderRadius: isToday ? '12px' : '0', 
+        border: isToday ? `2px solid ${themeColor}` : 'none' 
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ fontWeight: 'bold' }}>{hDate.toLocaleDateString('ja-JP')}</span>
+          
+          {/* 🚀 🆕 追加：履歴リスト用の小さなバッジ */}
+          {hBrandLabel && (
+            <span style={{ 
+              fontSize: '0.6rem', 
+              padding: '1px 5px', 
+              borderRadius: '4px',
+              // カレンダーと同じ色分けルールを適用
+              background: h.biz_type === 'foot' ? '#4285f4' : '#d34817', 
+              color: '#fff', 
+              fontWeight: '900',
+              whiteSpace: 'nowrap'
+            }}>
+              {hBrandLabel.slice(0, 5)}
+            </span>
+          )}
+        </div>
+
+        {(() => {
   // 実績(total_price)があればそれを使い、なければ予定額を計算する
   const displayPrice = h.total_price > 0 ? h.total_price : parseReservationDetails(h).totalPrice;
   return (

@@ -19,6 +19,7 @@ function AdminManagement() {
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date().toLocaleDateString('sv-SE'));
+  const [categoryMap, setCategoryMap] = useState({});
   const [viewMonth, setViewMonth] = useState(new Date());
 
   // --- 検索機能用State ---
@@ -203,7 +204,16 @@ function AdminManagement() {
       });
 
       setAllReservations([...individualTasks, ...facilityTasks]);
-      setCategories(catRes.data?.filter(c => !c.is_adjustment_cat && !c.is_product_cat) || []);
+      
+      // 🚀 🆕 追加：url_key と 専用屋号 を紐付けるマップを作成
+      const shopNameMap = {};
+      const allCatsForMap = catRes.data || [];
+      allCatsForMap.forEach(c => {
+        if (c.url_key) shopNameMap[c.url_key] = c.custom_shop_name || c.name;
+      });
+      setCategoryMap(shopNameMap);
+
+      setCategories(allCatsForMap.filter(c => !c.is_adjustment_cat && !c.is_product_cat) || []);
       setServices(servRes.data || []);
       setServiceOptions(optRes.data || []);
       setAdminAdjustments(adjRes.data || []);
@@ -554,17 +564,33 @@ const completePayment = async () => {
   };
 
   // 🆕 修正：台帳（sales）にある「その日の確定売上」をすべて合計するロジック
-  const dailyTotalSales = useMemo(() => {
-    return salesRecords
-      .filter(s => {
-        if (!s.sale_date) return false;
-        // ✅ 形式がハイフン(-)でもスラッシュ(/)でも一致するように正規化
-        const sDate = s.sale_date.toString().split('T')[0].replace(/\//g, '-');
-        const tDate = selectedDate.toString().split('T')[0].replace(/\//g, '-');
-        return sDate === tDate;
-      })
-      .reduce((sum, s) => sum + (Number(s.total_amount) || 0), 0);
-  }, [salesRecords, selectedDate]);
+  const salesBreakdown = useMemo(() => {
+    const breakdown = { total: 0, common: 0, byBiz: {} };
+
+    salesRecords.filter(s => {
+      if (!s.sale_date) return false;
+      const sDate = s.sale_date.toString().split('T')[0].replace(/\//g, '-');
+      const tDate = selectedDate.toString().split('T')[0].replace(/\//g, '-');
+      return sDate === tDate;
+    }).forEach(s => {
+      const amount = Number(s.total_amount) || 0;
+      breakdown.total += amount;
+
+      // 💡 売上記録に関連する予約を探して、識別キー(biz_type)を確認する
+      const associatedRes = allReservations.find(r => r.id === s.reservation_id);
+      const bType = associatedRes?.biz_type;
+
+      if (bType && categoryMap[bType]) {
+        const name = categoryMap[bType];
+        breakdown.byBiz[name] = (breakdown.byBiz[name] || 0) + amount;
+      } else {
+        // 識別キーがない、または通常の予約の場合
+        breakdown.common += amount;
+      }
+    });
+
+    return breakdown;
+  }, [salesRecords, selectedDate, allReservations, categoryMap]);
 
   // 🆕 修正：過去の「レジ処理忘れ」を自動検知するロジック
   const oldestIncompleteDate = useMemo(() => {
@@ -586,64 +612,46 @@ const completePayment = async () => {
 // ✅ 売上の人数と金額のズレを完全に解消する集計ロジック（厳格・台帳連動版）
   const analyticsData = useMemo(() => {
   const currentYear = viewYear;
+  const mainName = shop?.business_name || '通常';
+  
   const months = Array.from({ length: 12 }, (_, i) => ({
     month: i + 1, total: 0, count: 0,
-    days: Array.from({ length: new Date(currentYear, i + 1, 0).getDate() }, (_, j) => ({ day: j + 1, total: 0, count: 0 }))
+    // 🆕 事業別の内訳を保持する箱を追加
+    breakdown: { [mainName]: 0 }, 
+    days: Array.from({ length: new Date(currentYear, i + 1, 0).getDate() }, (_, j) => ({ 
+      day: j + 1, total: 0, count: 0, breakdown: { [mainName]: 0 } 
+    }))
   }));
 
-  // 1️⃣ ✅ 対象データを個人・施設の両方に広げる
-  const validTasks = allReservations.filter(r => 
-    (r.task_type === 'individual' || r.task_type === 'facility') && 
-    r.is_block !== true // 🚀 🆕 ここで名前ではなく「フラグ」で弾く
-  );
+  const validTasks = allReservations.filter(r => (r.task_type === 'individual' || r.task_type === 'facility') && r.is_block !== true);
   const validResIds = new Set(validTasks.filter(r => r.task_type === 'individual').map(r => r.id));
-  const validVisitIds = new Set(validTasks.filter(r => r.task_type === 'facility').map(r => r.id));
 
-  // 2️⃣ 会計記録(sales)を集計
   salesRecords.forEach(s => {
-    const isIndividualSale = s.reservation_id && validResIds.has(s.reservation_id);
-    const isFacilitySale = s.visit_request_id && validVisitIds.has(s.visit_request_id);
-
-    if (!isIndividualSale && !isFacilitySale) return;
-
     const d = new Date(s.sale_date);
     if (d.getFullYear() === currentYear) {
       const mIdx = d.getMonth();
       const dIdx = d.getDate() - 1;
-      if (months[mIdx] && months[mIdx].days[dIdx]) {
-        months[mIdx].total += (Number(s.total_amount) || 0);
-        months[mIdx].count += 1;
-        months[mIdx].days[dIdx].total += (Number(s.total_amount) || 0);
-        months[mIdx].days[dIdx].count += 1;
-      }
-    }
-  });
+      const amount = Number(s.total_amount) || 0;
 
-  // 3️⃣ ✅ 未会計の完了済みデータを補完（IDの照合を両タイプ対応させる）
-  const accountedIds = new Set([
-    ...salesRecords.map(s => s.reservation_id),
-    ...salesRecords.map(s => s.visit_request_id)
-  ].filter(Boolean));
-  
-  validTasks.filter(r => 
-    r.status === 'completed' && 
-    !accountedIds.has(r.id)
-  ).forEach(r => {
-    const d = new Date(r.start_time);
-    if (d.getFullYear() === currentYear) {
-      const mIdx = d.getMonth();
-      const dIdx = d.getDate() - 1;
+      // 💡 どの事業か特定する
+      const res = allReservations.find(r => r.id === s.reservation_id);
+      const bizName = (res?.biz_type && categoryMap[res.biz_type]) ? categoryMap[res.biz_type] : mainName;
+
       if (months[mIdx] && months[mIdx].days[dIdx]) {
-        months[mIdx].total += (Number(r.total_price) || 0);
+        months[mIdx].total += amount;
         months[mIdx].count += 1;
-        months[mIdx].days[dIdx].total += (Number(r.total_price) || 0);
+        // 🆕 事業別の加算
+        months[mIdx].breakdown[bizName] = (months[mIdx].breakdown[bizName] || 0) + amount;
+
+        months[mIdx].days[dIdx].total += amount;
         months[mIdx].days[dIdx].count += 1;
+        months[mIdx].days[dIdx].breakdown[bizName] = (months[mIdx].days[dIdx].breakdown[bizName] || 0) + amount;
       }
     }
   });
 
   return months;
-}, [allReservations, salesRecords, viewYear]);
+}, [allReservations, salesRecords, viewYear, categoryMap, shop]);
 
   // 🆕 🚀 ここから追加！！ ==========================================
   // 選択中の顧客（施設）に関連する「利用者一覧」を売上データから抽出する
@@ -1207,10 +1215,33 @@ return (
           fontWeight: selectedIndex === index ? 'bold' : 'normal'
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <span>{cust.name} 様</span>
-          <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{cust.phone?.slice(-4)}</span>
-        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <b>{v.start_time.split('T')[0]}</b>
+                          
+                          {/* 🚀 🆕 追加：履歴用バッジ */}
+                          {categoryMap[v.biz_type] && (
+                            <span style={{ 
+                              fontSize: '0.55rem', padding: '1px 5px', borderRadius: '4px',
+                              background: v.biz_type === 'foot' ? '#4285f4' : '#d34817', 
+                              color: '#fff', fontWeight: '900'
+                            }}>
+                              {categoryMap[v.biz_type].slice(0, 4)}
+                            </span>
+                          )}
+                        </div>
+                        
+                        {/* 🚀 🆕 修正：金額表示を (予) 対応版に書き換え */}
+                        {(() => {
+                          const displayPrice = v.total_price > 0 ? v.total_price : parseReservationDetails(v).totalPrice;
+                          return (
+                            <span style={{ color: '#e11d48', fontWeight: 'bold' }}>
+                              ¥{displayPrice.toLocaleString()}
+                              {v.total_price === 0 && <small style={{ fontSize: '0.6rem', marginLeft: '2px' }}>(予)</small>}
+                            </span>
+                          );
+                        })()}
+                      </div>
       </div>
     ))}
   </div>
@@ -1349,10 +1380,22 @@ return (
                                 ...tdStyle, 
                                 fontWeight: 'bold', 
                                 color: isFacility ? '#4f46e5' : (res.status === 'completed' ? '#333' : '#fff'),
-                                background: isFacility ? 'transparent' : (res.status === 'completed' ? '#eee' : '#008000')
+                                background: isFacility ? 'transparent' : (res.status === 'completed' ? '#eee' : '#008000'),
+                                // 🆕 縦並びにするための設定
+                                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', justifyContent: 'center'
                               }}
                             >
-                              {isFacility && '🏢 '}{res.customer_name} {isFinalized && '✓'}
+                              {/* 🚀 🆕 追加：屋号バッジ（施設以外で識別キーがある場合） */}
+                              {!isFacility && categoryMap[res.biz_type] && (
+                                <span style={{ 
+                                  fontSize: '0.55rem', padding: '1px 5px', borderRadius: '4px',
+                                  background: res.biz_type === 'foot' ? '#4285f4' : '#d34817',
+                                  color: '#fff', fontWeight: '900', marginBottom: '2px'
+                                }}>
+                                  {categoryMap[res.biz_type].slice(0, 4)}
+                                </span>
+                              )}
+                              <span>{isFacility && '🏢 '}{res.customer_name} {isFinalized && '✓'}</span>
                             </td>
 
                             {/* --- ④ メニュー(予定)列 --- */}
@@ -1468,15 +1511,54 @@ return (
 
             {/* 🚀 フッター：合計金額表示 */}
             <div style={{ 
-              display: 'flex', 
-              background: '#d34817', 
+              background: '#1e293b', // 深い色で引き締める
               padding: isPC ? '15px 25px' : '10px 20px', 
-              justifyContent: 'space-between', 
-              alignItems: 'center', 
-              color: '#fff' 
+              color: '#fff',
+              boxShadow: '0 -4px 10px rgba(0,0,0,0.1)'
             }}>
-               <div style={{ fontSize: isPC ? '0.9rem' : '0.75rem', fontWeight: 'bold' }}>本日のお会計確定 合計</div>
-               <div style={{ fontSize: isPC ? '1.8rem' : '1.4rem', fontWeight: '900' }}>¥ {dailyTotalSales.toLocaleString()}</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px', justifyContent: 'space-between', alignItems: 'center' }}>
+                
+                {/* 📊 各事業の内訳 */}
+                <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  
+                  {/* メイン店舗（business_name）の売上 */}
+                  {salesBreakdown.common > 0 && (
+                    <div style={{ fontSize: '0.8rem' }}>
+                      <span style={{ 
+                        opacity: 0.8, 
+                        fontWeight: 'bold',
+                        color: '#94a3b8', // メインは少し落ち着いた色に
+                        marginRight: '5px'
+                      }}>
+                        {shop?.business_name || '通常'}：
+                      </span>
+                      <span style={{ fontWeight: '900' }}>
+                        ¥{salesBreakdown.common.toLocaleString()}
+                      </span>
+                    </div>
+                  )}
+                  
+                  {/* 各屋号ごとの売上 */}
+                  {Object.entries(salesBreakdown.byBiz).map(([name, amount]) => (
+                    <div key={name} style={{ fontSize: '0.8rem' }}>
+                      <span style={{ 
+                        padding: '1px 6px', borderRadius: '4px', marginRight: '5px',
+                        background: name.includes('フット') ? '#4285f4' : '#d34817',
+                        fontSize: '0.65rem', fontWeight: 'bold'
+                      }}>{name}</span>
+                      <span style={{ fontWeight: 'bold' }}>¥{amount.toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* 🏆 総計 */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ fontSize: '0.8rem', fontWeight: 'bold', opacity: 0.8 }}>本日の総売上</span>
+                  <span style={{ fontSize: isPC ? '1.8rem' : '1.4rem', fontWeight: '900', color: '#fbbf24' }}>
+                    ¥ {salesBreakdown.total.toLocaleString()}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -1639,9 +1721,20 @@ return (
                     <span style={{ color: '#666', fontSize: '0.8rem' }}>来客数</span>
                     <span style={{ fontWeight: 'bold' }}>{m.count} 名</span>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                    <span style={{ color: '#666', fontSize: '0.8rem' }}>売上合計</span>
-                    <span style={{ fontSize: '1.4rem', fontWeight: '900', color: '#d34817' }}>¥ {m.total.toLocaleString()}</span>
+                  <div style={{ borderTop: '1px solid #f1f5f9', marginTop: '10px', paddingTop: '10px' }}>
+                    {Object.entries(m.breakdown).map(([name, price]) => price > 0 && (
+                      <div key={name} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', marginBottom: '3px' }}>
+                        <span style={{ 
+                          color: name === (shop?.business_name || '通常') ? '#94a3b8' : (name.includes('フット') ? '#4285f4' : '#d34817'),
+                          fontWeight: 'bold'
+                        }}>{name}</span>
+                        <span style={{ fontWeight: 'bold' }}>¥{price.toLocaleString()}</span>
+                      </div>
+                    ))}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '5px' }}>
+                      <span style={{ color: '#1e293b', fontSize: '0.8rem', fontWeight: 'bold' }}>合計</span>
+                      <span style={{ fontSize: '1.2rem', fontWeight: '900', color: '#d34817' }}>¥ {m.total.toLocaleString()}</span>
+                    </div>
                   </div>
                   <div style={{ marginTop: '12px', fontSize: '0.65rem', color: '#4285f4', textAlign: 'right', borderTop: '1px solid #f1f5f9', paddingTop: '8px' }}>タップして日別詳細を表示 →</div>
                 </div>
@@ -1658,30 +1751,37 @@ return (
                     <h3 style={{ margin: 0, fontSize: '1rem' }}>{viewYear}年 {selectedMonthData.month}月 日別詳細</h3>
                     
                     <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                      {/* 🆕 CSV出力ボタンを設置 */}
-                      <button 
-                        onClick={() => handleExportCSV(selectedMonthData)}
-                        style={{ 
-                          padding: '6px 12px', 
-                          background: '#008000', 
-                          color: '#fff', 
-                          border: 'none', 
-                          borderRadius: '8px', 
-                          fontSize: '0.75rem', 
-                          fontWeight: 'bold', 
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                        }}
-                      >
+                      <button onClick={() => handleExportCSV(selectedMonthData)} style={{ padding: '6px 12px', background: '#008000', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
                         📥 CSV保存
                       </button>
-                      
-                      {/* 閉じるボタン */}
                       <button onClick={() => setSelectedMonthData(null)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#64748b' }}><X size={20}/></button>
                     </div>
+                  </div>
+
+                  {/* 🚀 🆕 ここに追加：この月の事業別合計内訳を表示するパネル */}
+                  <div style={{ 
+                    background: '#f8fafc', 
+                    padding: '15px', 
+                    borderRadius: '15px', 
+                    marginBottom: '15px', 
+                    display: 'flex', 
+                    flexWrap: 'wrap', 
+                    gap: '20px', 
+                    border: '1px solid #e2e8f0' 
+                  }}>
+                    {Object.entries(selectedMonthData.breakdown).map(([name, price]) => (
+                      <div key={name}>
+                        <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 'bold' }}>{name} 合計</div>
+                        <div style={{ 
+                          fontSize: '1.1rem', 
+                          fontWeight: '900', 
+                          // フットなら青、その他なら黒っぽい色
+                          color: name.includes('フット') ? '#4285f4' : '#1e293b' 
+                        }}>
+                          ¥{price.toLocaleString()}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                   <div style={{ maxHeight: '50vh', overflowY: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -2084,11 +2184,27 @@ return (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {pastVisits.map(v => {
                   const details = parseReservationDetails(v);
+                  // 🚀 🆕 履歴用の事業名を取得
+                  const vBrandLabel = categoryMap[v.biz_type];
+
                   return (
                     <div key={v.id} style={{ background: '#fff', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <b>{v.start_time.split('T')[0]}</b>
-                        <span style={{color:'#d34817'}}>¥{Number(v.total_price || 0).toLocaleString()}</span>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <b>{v.start_time.split('T')[0]}</b>
+                          
+                          {/* 🚀 🆕 追加：履歴リスト用の小さなバッジ */}
+                          {vBrandLabel && (
+                            <span style={{ 
+                              fontSize: '0.55rem', padding: '1px 5px', borderRadius: '4px',
+                              background: v.biz_type === 'foot' ? '#4285f4' : '#d34817', 
+                              color: '#fff', fontWeight: '900'
+                            }}>
+                              {vBrandLabel.slice(0, 4)}
+                            </span>
+                          )}
+                        </div>
+                        <span style={{color:'#d34817', fontWeight: 'bold'}}>¥{Number(v.total_price || 0).toLocaleString()}</span>
                       </div>
 <p style={{ margin: 0, fontSize: '0.8rem' }}>
   <span style={{ fontWeight: 'bold', color: '#4b2c85', marginRight: '8px' }}>👤 {v.staffs?.name || 'フリー'}</span> {/* 🆕 追加 */}

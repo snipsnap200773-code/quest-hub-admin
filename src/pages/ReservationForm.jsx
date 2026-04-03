@@ -449,6 +449,7 @@ const handleNextStep = () => {
       visitorZip,
       visitorAddress,
       customShopName: displayBranding.name,
+      bizType: entryType || location.state?.adminBizType,
       staffId: adminStaffId || staffIdFromUrl || autoStaffId,
       fromView: fromView
     };

@@ -15,6 +15,7 @@ const TodayTasks = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
+  const [categoryMap, setCategoryMap] = useState({});
 
   // 🆕 お客様情報ポップアップ用の状態 [cite: 2026-03-08]
   const [showCustomerModal, setShowCustomerModal] = useState(false);
@@ -101,6 +102,13 @@ const fetchMasterData = async () => {
     setAdjCategories(adjustmentCats); // 調整用
     setProductCategories(productCats); // 店販用
     
+    // 🚀 🆕 追加：url_key と 専用屋号 を紐付けるマップを作成
+    const shopNameMap = {};
+    allCats.forEach(c => {
+      if (c.url_key) shopNameMap[c.url_key] = c.custom_shop_name || c.name;
+    });
+    setCategoryMap(shopNameMap);
+
     setAdjustments(adjRes.data || []);
     setProducts(prodRes.data || []);
     setServices(servRes.data || []);
@@ -707,12 +715,22 @@ const handleSaveMemo = async () => {
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '15px' }}>
                   <div style={{ flex: 1, minWidth: '200px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
                       <Clock size={16} color={isFacility ? '#4f46e5' : themeColor} />
                       <span style={{ fontWeight: 'bold', fontSize: '1.1rem', color: '#1e293b' }}>
-                        {/* 🆕 施設の場合は「訪問」と強調 */}
                         {isFacility ? '訪問予定' : new Date(task.start_time).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }) + ' 〜'}
                       </span>
+
+                      {/* 🚀 🆕 追加：屋号バッジ（biz_typeがある場合のみ） */}
+                      {!isFacility && categoryMap[task.biz_type] && (
+                        <span style={{ 
+                          fontSize: '0.6rem', padding: '2px 6px', borderRadius: '4px',
+                          background: task.biz_type === 'foot' ? '#4285f4' : '#d34817',
+                          color: '#fff', fontWeight: '900', marginLeft: '5px'
+                        }}>
+                          {categoryMap[task.biz_type].slice(0, 5)}
+                        </span>
+                      )}
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#1e293b' }}>
@@ -1314,22 +1332,34 @@ const handleSaveMemo = async () => {
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '0.85rem', marginBottom: '4px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                           <span style={{ color: isToday ? themeColor : (isFuture ? '#0ea5e9' : '#1e293b') }}>
                             📅 {hDate.toLocaleDateString('ja-JP')}
                           </span>
+                          
+                          {/* 🚀 🆕 修正：エラーの元(isFacility)を削除し、バッジを安全に表示 */}
+                          {categoryMap[h.biz_type] && (
+                            <span style={{ 
+                              fontSize: '0.55rem', padding: '1px 5px', borderRadius: '4px',
+                              background: h.biz_type === 'foot' ? '#4285f4' : '#d34817',
+                              color: '#fff', fontWeight: '900'
+                            }}>
+                              {categoryMap[h.biz_type].slice(0, 4)}
+                            </span>
+                          )}
+
                           {isToday && <span style={{ background: themeColor, color: '#fff', padding: '1px 6px', borderRadius: '4px', fontSize: '0.6rem' }}>今回</span>}
-                          {isFuture && <span style={{ background: '#0ea5e9', color: '#fff', padding: '1px 6px', borderRadius: '4px', fontSize: '0.6rem' }}>次回の予約</span>}
                         </div>
-                        {/* 💰 修正：お会計前(0円)でも予定金額を計算して表示する */}
-                        <div style={{ color: isFuture ? '#94a3b8' : '#d34817' }}>
+                        
+                        {/* 💰 🆕 追加：予定金額を (予) 付きで表示 */}
+                        <div style={{ color: isFuture ? '#94a3b8' : '#d34817', fontWeight: 'bold', fontSize: '0.85rem' }}>
                           {isFuture ? '---' : (() => {
                             const displayPrice = calculateInitialPrice(h);
                             const isConfirmed = h.status === 'completed' && h.total_price > 0;
                             return (
                               <>
                                 ¥{displayPrice.toLocaleString()}
-                                {!isConfirmed && <span style={{fontSize:'0.6rem', marginLeft:'2px'}}>(予)</span>}
+                                {!isConfirmed && <span style={{ fontSize: '0.6rem', marginLeft: '2px' }}>(予)</span>}
                               </>
                             );
                           })()}
