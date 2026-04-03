@@ -192,9 +192,10 @@ const fetchScheduleData = async () => {
           <Sparkles size={16} /> 全曜日にコピー
         </button>
         <button 
-          onClick={() => navigate(`/admin/${shopId}/settings/schedule-guide`)}
+          // 🚀 🆕 案内人機能を一旦停止（リンク解除 ＆ 無効化）
+          disabled={true} 
           style={{ 
-            background: themeColor, 
+            background: '#cbd5e1', // 鮮やかな色からグレーに変更
             border: 'none', 
             padding: isPC ? '10px 20px' : '10px 15px', 
             borderRadius: '30px', 
@@ -204,12 +205,12 @@ const fetchScheduleData = async () => {
             display: 'flex', 
             alignItems: 'center', 
             gap: '8px', 
-            cursor: 'pointer', 
-            boxShadow: `0 4px 12px ${themeColor}44`,
+            cursor: 'not-allowed', // 禁止マークを表示
+            boxShadow: 'none', // 影を消す
             whiteSpace: 'nowrap'
           }}
         >
-          <Sparkles size={16} /> {isPC ? '案内人を召喚' : '案内人'}
+          <Sparkles size={16} /> {isPC ? '案内人（準備中）' : '準備中'}
         </button>
       </div>
       

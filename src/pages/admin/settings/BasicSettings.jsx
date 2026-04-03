@@ -181,9 +181,10 @@ const handleSave = async () => {
         </button>
 
         <button 
-          onClick={() => navigate(`/admin/${shopId}/settings/basic-guide`)}
+          // 🚀 🆕 案内人機能を一旦停止（リンク解除 ＆ 無効化）
+          disabled={true} 
           style={{ 
-            background: themeColor, 
+            background: '#cbd5e1', // 鮮やかな色からグレーに変更
             border: 'none', 
             padding: isPC ? '10px 20px' : '10px 15px', 
             borderRadius: '30px', 
@@ -193,12 +194,13 @@ const handleSave = async () => {
             display: 'flex', 
             alignItems: 'center', 
             gap: '8px', 
-            cursor: 'pointer', 
-            boxShadow: `0 4px 12px ${themeColor}44`,
+            cursor: 'not-allowed', // カーソルを「禁止マーク」に変更
+            boxShadow: 'none', // 影を消して平坦にする
             whiteSpace: 'nowrap'
           }}
         >
-          <Sparkles size={16} /> {isPC ? '案内人を召喚' : '案内人'}
+          {/* ラベルも「準備中」などにすると親切です */}
+          <Sparkles size={16} /> {isPC ? '案内人（準備中）' : '準備中'}
         </button>
       </div>
 
