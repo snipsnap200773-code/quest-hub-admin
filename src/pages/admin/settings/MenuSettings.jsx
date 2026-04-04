@@ -475,7 +475,7 @@ const handleProdCatSubmit = async (e) => {
   };
 
   // --- 4. スタイル設定 ---
-  const containerStyle = { fontFamily: 'sans-serif', maxWidth: '700px', margin: '0 auto', padding: '20px', paddingBottom: '120px', position: 'relative' };
+  const containerStyle = { fontFamily: 'sans-serif', width: '100%', maxWidth: '700px', margin: '0 auto', padding: '20px', paddingBottom: '120px', position: 'relative', boxSizing: 'border-box' };
   const cardStyle = { marginBottom: '20px', background: '#fff', padding: '24px', borderRadius: '20px', border: '1px solid #e2e8f0', boxSizing: 'border-box', width: '100%', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' };
   const inputStyle = { width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #cbd5e1', boxSizing: 'border-box', fontSize: '1rem', background: '#fff' };
   const btnActiveS = (val, target) => ({ flex: 1, padding: '12px 5px', background: val === target ? themeColor : '#fff', color: val === target ? '#fff' : '#333', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: 'bold', fontSize: '0.85rem', cursor: 'pointer' });
@@ -550,7 +550,7 @@ const handleProdCatSubmit = async (e) => {
           <div style={{ background: '#fff', padding: '12px', borderRadius: '12px', border: '1px solid #dcfce7' }}>
             <label style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 'bold', display: 'block', marginBottom: '4px' }}>全メニュー表示用（共通）</label>
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-              <code style={{ flex: 1, fontSize: '0.8rem', color: '#166534', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <code style={{ flex: 1, minWidth: 0, fontSize: '0.8rem', color: '#166534', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {`https://quest-hub-five.vercel.app/shop/${shopId}/reserve`}
               </code>
               <button 
@@ -567,7 +567,7 @@ const handleProdCatSubmit = async (e) => {
                 事業専用：{categories.find(c => c.url_key === key)?.name || key}
               </label>
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                <code style={{ flex: 1, fontSize: '0.8rem', color: '#166534', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <code style={{ flex: 1, minWidth: 0, fontSize: '0.8rem', color: '#166534', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {`https://quest-hub-five.vercel.app/shop/${shopId}/reserve?type=${key}`}
                 </code>
                 <button 
@@ -616,7 +616,8 @@ const handleProdCatSubmit = async (e) => {
         </h3>
         <form onSubmit={handleCategorySubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
           <input placeholder="カテゴリ名 (例: カット, カラー)" value={newCategoryName || ''} onChange={(e) => setNewCategoryName(e.target.value)} style={inputStyle} required />
-<div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '5px' }}>
+{/* ラベル部分の修正 */}
+<div style={{ display: 'flex', flexDirection: isPC ? 'row' : 'column', gap: '10px', alignItems: isPC ? 'center' : 'flex-start', marginBottom: '5px' }}>
   <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
     <span style={{ fontSize: '0.7rem', color: '#64748b' }}>識別キー</span>
     <HelpTooltip themeColor={themeColor} text="英数字を入力すると、このカテゴリ専用の予約URLを作成できます（例：hair）。" />
@@ -626,7 +627,9 @@ const handleProdCatSubmit = async (e) => {
     <HelpTooltip themeColor={themeColor} text="このカテゴリの予約画面だけ、別の店名を表示したい場合に入力します。" />
   </div>
 </div>
-<div style={{ display: 'flex', gap: '10px' }}>
+
+{/* 入力欄部分の修正 */}
+<div style={{ display: 'flex', flexDirection: isPC ? 'row' : 'column', gap: '10px' }}>
   <input placeholder="例: yukado" value={newUrlKey} onChange={(e) => setNewUrlKey(e.target.value)} style={{ ...inputStyle, flex: 1 }} />
   <input placeholder="例: 訪問カット 結美" value={newCustomShopName} onChange={(e) => setNewCustomShopName(e.target.value)} style={{ ...inputStyle, flex: 1 }} />
 </div>
