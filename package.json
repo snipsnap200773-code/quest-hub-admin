@@ -7,9 +7,13 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy-sandbox": "npx supabase functions deploy resend --no-verify-jwt --project-ref rdpupixaqckhkpgjqcnb"
   },
   "dependencies": {
+    "@capacitor/android": "^8.3.0",
+    "@capacitor/cli": "^8.3.0",
+    "@capacitor/core": "^8.3.0",
     "@line/liff": "^2.27.3",
     "@supabase/supabase-js": "^2.89.0",
     "bcryptjs": "^3.0.3",
