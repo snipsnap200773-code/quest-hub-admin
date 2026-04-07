@@ -1188,7 +1188,16 @@ return (
                 <button onClick={goNext} style={headerBtnStylePC}>次週</button>
               </div>
               <div style={{ position: 'relative', marginLeft: '10px', width: '300px' }}>
-                <input type="text" placeholder="👤 顧客を検索..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} onKeyDown={handleKeyDown} style={{ width: '100%', padding: '12px 15px 12px 40px', borderRadius: '12px', border: '1px solid #e2e8f0', background: '#f8fafc', fontSize: '0.9rem' }} />
+                <input 
+  type="text" 
+  autoComplete="off" // 👈 これで「勝手に出さないで」と命令
+  name="search-no-autofill" // 👈 ブラウザが推測できない名前にする
+  placeholder="👤 顧客を検索..." 
+  value={searchTerm} 
+  onChange={(e) => setSearchTerm(e.target.value)} 
+  onKeyDown={handleKeyDown} 
+  style={{ width: '100%', padding: '12px 15px 12px 40px', borderRadius: '12px', border: '1px solid #e2e8f0', background: '#f8fafc', fontSize: '0.9rem' }} 
+/>
                 <span style={{ position: 'absolute', left: '12px', top: '12px', opacity: 0.4 }}>🔍</span>
                 {customers.length > 0 && (
                   <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', borderRadius: '12px', marginTop: '5px', zIndex: 1000, border: '1px solid #eee' }}>

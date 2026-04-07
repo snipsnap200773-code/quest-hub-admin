@@ -1172,94 +1172,54 @@ return (
 <div style={{ display: 'flex', gap: '6px', alignItems: 'center', position: 'relative' }}>
   {/* 🔍 検索入力エリア */}
   <div style={{ position: 'relative' }}>
-<input 
-  type="text" 
-  placeholder="顧客検索..." 
-  value={searchTerm}
-  onChange={(e) => {
-    handleSearch(e.target.value);
-    setSelectedIndex(-1); // 文字を変えたら選択をリセット
-  }}
-  onKeyDown={handleKeyDown} // 🆕 キー入力を監視
-  style={{ 
-    padding: '5px 10px', 
-    borderRadius: '6px', 
-    border: 'none', 
-    fontSize: '0.8rem', 
-    width: isPC ? '150px' : '100px',
-    marginRight: '10px',
-    outline: 'none'
-  }} 
-/>
-{/* 検索結果のドロップダウン */}
-{searchResults.length > 0 && (
-  <div style={{ 
-    position: 'absolute', top: '35px', left: 0, width: '250px', 
-    background: '#fff', color: '#333', borderRadius: '8px', 
-    boxShadow: '0 4px 12px rgba(0,0,0,0.2)', zIndex: 100,
-    overflow: 'hidden'
-  }}>
-    {searchResults.map((cust, index) => (
-      <div 
-        key={cust.id} 
-        onClick={() => selectSearchResult(cust)}
-        onMouseEnter={() => setSelectedIndex(index)} // 🆕 マウスが乗った時も同期
-        style={{ 
-          padding: '10px', 
-          borderBottom: '1px solid #eee', 
-          cursor: 'pointer', 
-          fontSize: '0.85rem',
-          // 🆕 選択されている項目に背景色をつける
-          background: selectedIndex === index ? '#f3f0ff' : '#fff',
-          color: selectedIndex === index ? '#4b2c85' : '#333',
-          fontWeight: selectedIndex === index ? 'bold' : 'normal'
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <b>{v.start_time.split('T')[0]}</b>
-                          
-                          {/* 🚀 🆕 追加：履歴用バッジ */}
-                          {categoryMap[v.biz_type] && (
-                            <span style={{ 
-                              fontSize: '0.55rem', padding: '1px 5px', borderRadius: '4px',
-                              background: v.biz_type === 'foot' ? '#4285f4' : '#d34817', 
-                              color: '#fff', fontWeight: '900'
-                            }}>
-                              {categoryMap[v.biz_type].slice(0, 4)}
-                            </span>
-                          )}
-                        </div>
-                        
-                        {/* 🚀 🆕 修正：金額表示を (予) 対応版に書き換え */}
-                        {(() => {
-                          const displayPrice = v.total_price > 0 ? v.total_price : parseReservationDetails(v).totalPrice;
-                          return (
-                            <span style={{ color: '#e11d48', fontWeight: 'bold' }}>
-                              ¥{displayPrice.toLocaleString()}
-                              {v.total_price === 0 && <small style={{ fontSize: '0.6rem', marginLeft: '2px' }}>(予)</small>}
-                            </span>
-                          );
-                        })()}
-                      </div>
-      </div>
-    ))}
-  </div>
-)}
-    {/* 検索結果のドロップダウン */}
+    <input 
+      type="text" 
+      placeholder="顧客検索..." 
+      value={searchTerm}
+      onChange={(e) => {
+        handleSearch(e.target.value);
+        setSelectedIndex(-1);
+      }}
+      onKeyDown={handleKeyDown}
+      style={{ 
+        padding: '5px 10px', 
+        borderRadius: '6px', 
+        border: 'none', 
+        fontSize: '0.8rem', 
+        width: isPC ? '150px' : '100px',
+        marginRight: '10px',
+        outline: 'none'
+      }} 
+    />
+
+    {/* 検索結果のドロップダウン（スッキリ版に統合） */}
     {searchResults.length > 0 && (
       <div style={{ 
-        position: 'absolute', top: '35px', left: 0, width: '200px', 
+        position: 'absolute', top: '35px', left: 0, width: '220px', 
         background: '#fff', color: '#333', borderRadius: '8px', 
-        boxShadow: '0 4px 12px rgba(0,0,0,0.2)', zIndex: 100 
+        boxShadow: '0 10px 25px rgba(0,0,0,0.2)', zIndex: 100,
+        overflow: 'hidden', border: '1px solid #ddd'
       }}>
-        {searchResults.map(cust => (
+        {searchResults.map((cust, index) => (
           <div 
             key={cust.id} 
             onClick={() => selectSearchResult(cust)}
-            style={{ padding: '10px', borderBottom: '1px solid #eee', cursor: 'pointer', fontSize: '0.85rem' }}
+            onMouseEnter={() => setSelectedIndex(index)}
+            style={{ 
+              padding: '12px 15px', 
+              borderBottom: '1px solid #f1f5f9', 
+              cursor: 'pointer', 
+              fontSize: '0.85rem',
+              background: selectedIndex === index ? '#f3f0ff' : '#fff',
+              color: selectedIndex === index ? '#4b2c85' : '#333',
+            }}
           >
-            {cust.name} 様
+            <div style={{ fontWeight: 'bold' }}>{cust.name} 様</div>
+            {cust.phone && (
+              <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '2px' }}>
+                📞 {cust.phone}
+              </div>
+            )}
           </div>
         ))}
       </div>
