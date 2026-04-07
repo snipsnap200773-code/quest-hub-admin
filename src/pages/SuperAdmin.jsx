@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 // 🆕 INDUSTRY_PRESETS を追加して、大・小カテゴリの階層データを使えるようにします
 import { INDUSTRY_PRESETS, INDUSTRY_LABELS, getSubCategories } from '../constants/industryMaster';
 
@@ -16,20 +17,20 @@ import {
 // (今後は INDUSTRY_LABELS を使用します)
 
 function SuperAdmin() {
-    const [isAuthorized, setIsAuthorized] = useState(false);
+  // 1. フックと状態管理（ここが抜けていました！）
+  const navigate = useNavigate(); 
+  const [isAuthorized, setIsAuthorized] = useState(false);
+  const [inputPass, setInputPass] = useState(''); // パスワード入力用
+  const [loading, setLoading] = useState(true);
 
+  // 環境変数
   const MASTER_PASSWORD = import.meta.env.VITE_SUPER_MASTER_PASSWORD; 
   const DELETE_PASSWORD = import.meta.env.VITE_SUPER_DELETE_PASSWORD;
-  // 💡 通知用関数のURL（環境変数から取得、なければ空）
-  const EDGE_FUNCTION_URL = "https://vcfndmyxypgoreuykwij.supabase.co/functions/v1/resend";
 
-  // --- 状態管理 ---
+  // --- その他のState ---
   const [createdShops, setCreatedShops] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeCategory, setActiveCategory] = useState('すべて');
-
-  // --- 🆕 施設管理用のStateを追加 ---
   const [facilities, setFacilities] = useState([]);
   const [newFacilityName, setNewFacilityName] = useState('');
   const [newFacilityLoginId, setNewFacilityLoginId] = useState('');
@@ -74,16 +75,13 @@ function SuperAdmin() {
   const [newNewsTitle, setNewNewsTitle] = useState('');
 
   useEffect(() => { 
-  // 🚀 修正：バトン（auth_super）を持っているかチェック
-  if (sessionStorage.getItem('auth_super') === 'true') {
-    setIsAuthorized(true);
-    fetchAllData();
-  } else {
-    // バトンがなければログイン画面へ追い返す
-    const navigate = useNavigate(); // ※関数の外で定義が必要
-    navigate('/');
-  }
-}, []);
+    if (sessionStorage.getItem('auth_super') === 'true') {
+      setIsAuthorized(true);
+      fetchAllData();
+    } else {
+      setLoading(false); // バトンがない場合は、読み込みを終わらせてログイン画面を出す
+    }
+  }, []);
 
   const isMobile = windowWidth < 1024;
 
@@ -93,7 +91,6 @@ function SuperAdmin() {
 
   const fetchAllData = async () => {
     setLoading(true);
-    // 🆕 fetchFacilities を追加
     await Promise.all([fetchCreatedShops(), fetchPortalContent(), fetchFacilities()]);
     setLoading(false);
   };
@@ -109,8 +106,13 @@ function SuperAdmin() {
 
   const handleLogin = (e) => {
     e.preventDefault();
-    if (inputPass === MASTER_PASSWORD) setIsAuthorized(true);
-    else alert('パスワードが違います');
+    if (inputPass === MASTER_PASSWORD) {
+      sessionStorage.setItem('auth_super', 'true');
+      setIsAuthorized(true);
+      fetchAllData();
+    } else {
+      alert('パスワードが違います');
+    }
   };
 
   const fetchCreatedShops = async () => {
@@ -342,8 +344,34 @@ const updateShopInfo = async (id) => {
     alert('コピーしました');
   };
 
-  // ロード中、または未認証時は表示しない（useEffectでのリダイレクトを待つ）
-if (loading || !isAuthorized) return null;
+  // 🚀 ここから修正
+  if (loading) return null; // 読み込み中だけ真っ白
+
+  // バトン（認証）がない場合に表示するログイン画面
+  if (!isAuthorized && !loading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#f0f2f5' }}>
+        <form onSubmit={handleLogin} style={panelStyle}>
+          <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+            <ShieldAlert size={40} color="#1e293b" style={{ marginBottom: '10px' }} />
+            <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 'bold' }}>QUEST-HUB 管理者認証</h2>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+            <input 
+              type="password" 
+              value={inputPass} 
+              onChange={(e) => setInputPass(e.target.value)} 
+              placeholder="マスターパスワードを入力" 
+              style={smallInput} 
+              autoFocus
+            />
+            <button type="submit" style={primaryBtn}>認証して入室</button>
+          </div>
+        </form>
+      </div>
+    );
+  }
+  // 🚀 ここまで修正
 
   // --- レンダリングパーツ ---
   const renderShopList = () => (
