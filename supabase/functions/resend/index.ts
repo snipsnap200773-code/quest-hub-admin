@@ -564,6 +564,59 @@ if (type === 'inquiry') {
       return new Response(JSON.stringify({ success: true }), { status: 200, headers: corsHeaders });
     }
 
+    // ==========================================
+    // 🚀 🆕 パターンL：既存店舗の認証復旧（強制同期）
+    // (Authにいない店舗を、既存のプロフィールIDのまま作成する)
+    // ==========================================
+    if (type === 'REPAIR_AUTH') {
+      const { shopId, email, password } = payload;
+      console.log(`[REPAIR_AUTH] 復旧開始: ${email} (ID: ${shopId})`);
+
+      // 💡 管理者権限（合鍵）を使って、IDを指定してAuthユーザーを作成
+      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+        id: shopId,          // 👈 これが最重要！DB側のProfilesと同じIDで作成します
+        email: email,
+        password: password,
+        email_confirm: true  // 確認メールをスキップ
+      });
+
+      if (authError) {
+        console.error('[REPAIR_AUTH] 作成失敗:', authError.message);
+        return new Response(JSON.stringify({ error: authError.message }), { 
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        });
+      }
+
+      console.log(`[REPAIR_AUTH] 復旧成功: ${email}`);
+      return new Response(JSON.stringify({ success: true }), { 
+        status: 200, headers: corsHeaders 
+      });
+    }
+
+    // 🚀 🆕 パターンM：認証パスワードの同期更新
+    if (type === 'UPDATE_PASSWORD') {
+      const { shopId, password } = payload;
+      console.log(`[UPDATE_PASSWORD] 更新開始: ID ${shopId}`);
+
+      // 管理者権限で、特定のIDのユーザー情報を更新する
+      const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
+        shopId, 
+        { password: password }
+      );
+
+      if (updateError) {
+        console.error('[UPDATE_PASSWORD] 更新失敗:', updateError.message);
+        return new Response(JSON.stringify({ error: updateError.message }), { 
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        });
+      }
+
+      console.log(`[UPDATE_PASSWORD] 更新成功: ID ${shopId}`);
+      return new Response(JSON.stringify({ success: true }), { 
+        status: 200, headers: corsHeaders 
+      });
+    }
+
     // ==========================================
     // 🚀 パターンA：店主様への歓迎メール ＆ 三土手さんへの通知送信 (本家ロジック完全維持)
     // ==========================================

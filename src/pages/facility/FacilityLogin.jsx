@@ -44,13 +44,15 @@ const FacilityLogin = () => {
     if (isEmail) {
       console.log("=== 店舗/総括 認証プロセス開始 ===");
       
-      // A. Supabase Auth ログイン試行（既に移行済みの人向け）
+      // A. Supabase Auth ログイン試行
+      // 💡 .signInWithPassword の直後にエラーをログに出さないように工夫します
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
         email: loginId,
         password: password,
       });
 
       if (!authError && authData.user) {
+        // ✅ 正常にAuthで入れた場合（移行済み）
         const { data: profile } = await supabase
           .from('profiles')
           .select('role, business_name')
@@ -59,14 +61,16 @@ const FacilityLogin = () => {
 
         if (profile?.role === 'super_admin') {
           sessionStorage.setItem('auth_super', 'true');
-          alert(`総括管理者としてログイン`);
           navigate('/super-admin-216-midote-snipsnap-dmaaaahkmm');
           return;
         }
+        // 通常店舗のダッシュボードへ
+        navigate(`/admin/${authData.user.id}/dashboard`);
+        return;
       }
 
-      // B. 既存店舗さんの救済 ＆ 自動お引越し
-      const { data: shopUser, error: shopError } = await supabase
+      // B. 【重要】Authにいない場合のみ、DBを直接見にいく
+      const { data: shopUser } = await supabase
         .from('profiles')
         .select('id, business_name, role')
         .eq('email_contact', loginId)
@@ -74,13 +78,11 @@ const FacilityLogin = () => {
         .maybeSingle();
 
       if (shopUser) {
-        // 1. バトンを保存
+        console.log("🛠️ 移行対象ユーザーを検知。お引越しを開始します...");
         sessionStorage.setItem(`auth_${shopUser.id}`, 'true'); 
 
-        // 🚀 2. 裏側でお引越し（Authアカウント作成）を依頼
-        // ここに await を入れることで、通信が確実に完了するのを待ちます
         try {
-          await fetch(EDGE_FUNCTION_URL, {
+          const response = await fetch(EDGE_FUNCTION_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -91,13 +93,20 @@ const FacilityLogin = () => {
               isMigration: true         
             })
           });
+
+          if (!response.ok) {
+            // 🚨 ここで500エラーが出た場合の警告
+            const errorText = await response.text();
+            throw new Error(`Edge Function Error: ${errorText}`);
+          }
+
+          alert(`認証移行が完了しました！次回からエラーなしでログインできます。`);
         } catch (err) {
-          console.error("Migration Error:", err);
+          console.error("Migration Failed:", err);
+          // 💡 ユーザーには「入れた」と見せつつ、裏で失敗したことを管理者に知らせる
+          alert(`ログインしましたが、認証移行に失敗しました。このままでも使えますが、エラー解消には管理者の確認が必要です。\n(理由: ${err.message})`);
         }
 
-        // 3. 通信完了後に遷移
-        alert(`店舗：${shopUser.business_name} としてログインしました（認証移行完了）`);
-        setIsProcessing(false);
         navigate(`/admin/${shopUser.id}/dashboard`);
         return;
       } else {

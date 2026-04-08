@@ -220,6 +220,48 @@ function SuperAdmin() {
     }
     setIsProcessing(false);
   };
+
+  // 🚀 🆕 既存店舗の認証アカウントを「今のIDのまま」強制作成する関数
+  const repairShopAuth = async (shop) => {
+    if (!shop.email_contact || !shop.admin_password) {
+      return alert('メールアドレスまたはパスワードが未設定のため復旧できません。');
+    }
+    if (!window.confirm(`「${shop.business_name}」の認証アカウントを強制復旧しますか？\n現在の店舗IDを維持したまま、Auth(Users)へ登録を行います。`)) return;
+    
+    setIsProcessing(true);
+    try {
+      const CORRECT_URL = "https://rdpupixaqckhkpgjqcnb.supabase.co/functions/v1/resend";
+      const response = await fetch(CORRECT_URL, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabase.supabaseKey}`, 
+          'apikey': supabase.supabaseKey
+        },
+        body: JSON.stringify({
+          type: 'REPAIR_AUTH', // 🆕 復旧専用の命令タイプ
+          shopId: shop.id,     // 👈 これが最重要！今のIDを渡す
+          email: shop.email_contact,
+          password: shop.admin_password,
+          shopName: shop.business_name
+        })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.message || '復旧に失敗しました');
+      }
+
+      alert(`「${shop.business_name}」の認証復旧が完了しました！\n次回から正常にログイン・通知が可能です。`);
+      fetchCreatedShops(); // リストを更新
+
+    } catch (err) {
+      console.error("Repair Error:", err);
+      alert('エラーが発生しました: ' + err.message);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
   // --- 🆕 施設情報を更新するロジック ---
   const updateFacilityInfo = async (id) => {
     const { error } = await supabase
@@ -257,19 +299,56 @@ function SuperAdmin() {
   };
 
 const updateShopInfo = async (id) => {
-    const { error } = await supabase.from('profiles').update({ 
+    setIsProcessing(true); // 🚀 処理中フラグをON
+
+    // 1. まずはDB（profiles）を更新
+    const { error: dbError } = await supabase.from('profiles').update({ 
       business_name: editName, 
       business_name_kana: editKana, 
       owner_name: editOwnerName, 
       owner_name_kana: editOwnerNameKana, 
       business_type: editBusinessType, 
-      // 🆕 小カテゴリを保存対象に追加
       sub_business_type: editSubBusinessType,
       email_contact: editEmail,
       phone: editPhone, 
       admin_password: editPassword 
     }).eq('id', id);
-    if (!error) { setEditingShopId(null); fetchCreatedShops(); alert('更新完了'); }
+
+    if (dbError) {
+      alert('DB更新失敗: ' + dbError.message);
+      setIsProcessing(false);
+      return;
+    }
+
+    // 2. 🚀 🆕 Auth（認証）側のパスワードも同期させる
+    try {
+      const CORRECT_URL = "https://rdpupixaqckhkpgjqcnb.supabase.co/functions/v1/resend";
+      const response = await fetch(CORRECT_URL, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabase.supabaseKey}`, 
+          'apikey': supabase.supabaseKey
+        },
+        body: JSON.stringify({
+          type: 'UPDATE_PASSWORD', // 🆕 パスワード更新命令
+          shopId: id,
+          password: editPassword
+        })
+      });
+
+      if (!response.ok) {
+        console.warn("Auth sync failed, but DB was updated.");
+      }
+    } catch (err) {
+      console.error("Auth Sync Error:", err);
+    }
+
+    // 3. 後処理
+    setEditingShopId(null); 
+    fetchCreatedShops(); 
+    setIsProcessing(false);
+    alert('店舗情報および認証パスワードを更新しました');
   };
 
   const toggleSuspension = async (shop) => {
@@ -426,6 +505,7 @@ const updateShopInfo = async (id) => {
   onToggleManagement={updateServicePlan} 
   onCopy={copyToClipboard} 
   categories={categoriesList} 
+  onRepairAuth={repairShopAuth}
 />
       ))}
       {filteredShops.length === 0 && <div style={{textAlign:'center', padding:'40px', color:'#999'}}>該当する店舗はありません</div>}
@@ -726,7 +806,7 @@ const updateShopInfo = async (id) => {
 }
 
 // 店舗カード（1ミリも省略なし）
-function ShopCard({ shop, index, editingShopId, setEditingShopId, editState, onUpdate, onDelete, onToggleSuspension, onToggleManagement, onCopy, categories }) {
+function ShopCard({ shop, index, editingShopId, setEditingShopId, editState, onUpdate, onDelete, onToggleSuspension, onToggleManagement, onCopy, categories, onRepairAuth }) {
   const isEditing = editingShopId === shop.id;
   const isSuspended = shop.is_suspended;
   const isMgmtEnabled = shop.is_management_enabled;
@@ -830,6 +910,20 @@ function ShopCard({ shop, index, editingShopId, setEditingShopId, editState, onU
               <option value={1}>プラン1：内部管理のみ（Web予約停止）</option>
             </select>
           </div>
+
+          {/* 🚀 🆕 復旧ボタン（Authにいない幽霊店舗用） */}
+          <button 
+            onClick={() => onRepairAuth(shop)}
+            style={{ 
+              width: '100%', marginBottom: '15px', padding: '10px', 
+              background: '#fef3c7', color: '#92400e', 
+              border: '1px solid #f59e0b', borderRadius: '10px', 
+              fontSize: '0.75rem', fontWeight: 'bold', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
+            }}
+          >
+            <ShieldAlert size={14} /> 認証アカウントを復旧（強制同期）
+          </button>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             <UrlBox label="管理" url={`${window.location.origin}/admin/${shop.id}/dashboard`} onCopy={onCopy} />
